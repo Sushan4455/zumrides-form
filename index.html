@@ -30,38 +30,37 @@
                 </label>
             </div>
 
-            <div id="dynamic-sections">
-                <!-- Routine Checkup -->
-                <div id="section-routine" class="task-section">
-                    <div class="form-group">
-                        <label class="field-label">Cycle ID</label>
-                        <input type="text" class="input-field" name="routine_cycleId" placeholder="e.g. CYC-100">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="field-label">Condition</label>
-                        <select class="input-field condition-select" name="routine_condition">
-                            <option value="good">All Good</option>
-                            <option value="issue">Has Issue</option>
-                        </select>
-                    </div>
+            <!-- Staff Selection -->
+            <div class="form-group" style="margin-bottom: 2rem;">
+                <label class="field-label">Staff Name</label>
+                <select class="input-field" id="staffName" name="staffName" required>
+                    <option value="" disabled selected>Who is checking?</option>
+                    <option value="Kabir">Kabir</option>
+                    <option value="Laxman">Laxman</option>
+                    <option value="Anish">Anish</option>
+                    <option value="Surya">Surya</option>
+                </select>
+                <p id="assignmentNote" style="font-size: 0.75rem; color: #10b981; margin-top: 0.5rem; display: none; font-weight: 500;"></p>
+            </div>
 
-                    <div class="form-group issue-desc hidden">
-                        <label class="field-label">Issue Description</label>
-                        <textarea class="input-field" name="routine_issue" rows="2" placeholder="What is the issue?"></textarea>
-                    </div>
+            <div id="dynamic-sections">
+                <!-- Routine Checkup Section -->
+                <div id="section-routine" class="task-section">
+                    <label class="section-title">Routine Checkup Entries</label>
+                    <div id="routine-cycles-container"></div>
+                    <button type="button" id="addRoutineCycleBtn" class="btn-ghost">+ Add another cycle</button>
                 </div>
 
                 <!-- Station Visit Section -->
                 <div id="section-station" class="task-section hidden">
-                    <label class="section-title">Cycles (up to 5)</label>
+                    <label class="section-title">Station Visit Cycles (up to 5)</label>
                     <div id="station-cycles-container"></div>
                     <button type="button" id="addStationCycleBtn" class="btn-ghost">+ Add another cycle</button>
                 </div>
 
                 <!-- Overall Checkup Section -->
                 <div id="section-overall" class="task-section hidden">
-                    <label class="section-title">Checkup Entries</label>
+                    <label class="section-title">Overall Checkup Entries</label>
                     <div id="overall-cycles-container"></div>
                     <button type="button" id="addCycleBtn" class="btn-ghost">+ Add another cycle</button>
                 </div>
