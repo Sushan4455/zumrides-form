@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Data Entry</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="header-title">Data Entry</h1>
+        </header>
+
+        <form id="workForm">
+            <!-- Segmented Control for Task -->
+            <div class="segmented-control" id="taskSegment">
+                <label class="segment-label">
+                    <input type="radio" name="taskType" value="routine" checked>
+                    <span class="segment-text">Routine</span>
+                </label>
+                <label class="segment-label">
+                    <input type="radio" name="taskType" value="station">
+                    <span class="segment-text">Station</span>
+                </label>
+                <label class="segment-label">
+                    <input type="radio" name="taskType" value="overall">
+                    <span class="segment-text">Overall</span>
+                </label>
+            </div>
+
+            <div id="dynamic-sections">
+                <!-- Routine Checkup -->
+                <div id="section-routine" class="task-section">
+                    <div class="form-group">
+                        <label class="field-label">Cycle ID</label>
+                        <input type="text" class="input-field" name="routine_cycleId" placeholder="e.g. CYC-100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="field-label">Condition</label>
+                        <select class="input-field condition-select" name="routine_condition">
+                            <option value="good">All Good</option>
+                            <option value="issue">Has Issue</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group issue-desc hidden">
+                        <label class="field-label">Issue Description</label>
+                        <textarea class="input-field" name="routine_issue" rows="2" placeholder="What is the issue?"></textarea>
+                    </div>
+                </div>
+
+                <!-- Station Visit Section -->
+                <div id="section-station" class="task-section hidden">
+                    <label class="section-title">Cycles (up to 5)</label>
+                    <div id="station-cycles-container"></div>
+                    <button type="button" id="addStationCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+
+                <!-- Overall Checkup Section -->
+                <div id="section-overall" class="task-section hidden">
+                    <label class="section-title">Checkup Entries</label>
+                    <div id="overall-cycles-container"></div>
+                    <button type="button" id="addCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+            </div>
+
+            <div class="bottom-actions">
+                <button type="button" id="clearBtn" class="btn-clear">Clear</button>
+                <button type="submit" id="submitBtn" class="btn-submit">Add</button>
+            </div>
+        </form>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

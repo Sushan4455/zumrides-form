@@ -1,0 +1,253 @@
+:root {
+    --bg-main: #ffffff;
+    --text-main: #111827;
+    --text-muted: #6b7280;
+    --input-bg: #f3f4f6;
+    --border-color: #e5e7eb;
+    --primary: #111827;
+    --primary-hover: #374151;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    display: flex;
+    justify-content: center;
+    padding: 0;
+    min-height: 100vh;
+}
+
+.container {
+    width: 100%;
+    max-width: 480px; /* Mobile width */
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header */
+header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    margin-bottom: 1.5rem;
+}
+
+.header-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+/* Segmented Control */
+.segmented-control {
+    display: flex;
+    background-color: var(--input-bg);
+    border-radius: 999px;
+    padding: 4px;
+    margin-bottom: 2rem;
+    position: relative;
+}
+
+.segment-label {
+    flex: 1;
+    text-align: center;
+    position: relative;
+    cursor: pointer;
+}
+
+.segment-label input {
+    display: none;
+}
+
+.segment-text {
+    display: block;
+    padding: 0.6rem 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-radius: 999px;
+    transition: all 0.2s ease;
+}
+
+.segment-label input:checked + .segment-text {
+    background-color: #ffffff;
+    color: var(--text-main);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Form Groups */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.field-label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.section-title {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 1.25rem;
+    font-weight: 600;
+}
+
+.input-field {
+    width: 100%;
+    background-color: var(--input-bg);
+    border: none;
+    border-radius: 12px;
+    padding: 0.875rem 1rem;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    font-family: inherit;
+    appearance: none;
+}
+
+select.input-field {
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M5%208l5%205%205-5%22%20stroke%3D%22%236b7280%22%20stroke-width%3D%222%22%20fill%3D%22none%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 1.2rem;
+    padding-right: 2.5rem;
+}
+
+.input-field:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
+}
+
+/* Cycle blocks */
+.cycle-card {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin-bottom: 2rem;
+}
+
+.cycle-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--text-main);
+}
+
+.btn-remove {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Tags (Parts Checked) */
+.tags-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.tag-label {
+    cursor: pointer;
+}
+
+.tag-label input {
+    display: none;
+}
+
+.tag-content {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4rem 0.8rem;
+    background-color: var(--input-bg);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.tag-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+
+.tag-label input:checked + .tag-content {
+    background-color: #ffffff;
+    border-color: var(--primary);
+    color: var(--text-main);
+}
+
+/* Ghost Button */
+.btn-ghost {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    padding: 1rem 0;
+}
+
+/* Bottom Actions */
+.bottom-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+.btn-clear, .btn-submit {
+    flex: 1;
+    border: none;
+    padding: 1.15rem;
+    border-radius: 999px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity 0.2s, transform 0.1s ease;
+}
+
+.btn-clear:active, .btn-submit:active {
+    transform: scale(0.98);
+}
+
+.btn-clear {
+    background-color: #f4f5f7;
+    color: #131620;
+}
+
+.btn-submit {
+    background-color: #131620;
+    color: #ffffff;
+}
+
+.btn-submit:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.hidden {
+    display: none !important;
+}
