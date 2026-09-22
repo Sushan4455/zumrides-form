@@ -17,22 +17,26 @@
             <!-- Segmented Control for Task -->
             <div class="segmented-control" id="taskSegment">
                 <label class="segment-label">
-                    <input type="radio" name="taskType" value="routine" checked>
-                    <span class="segment-text">Routine</span>
+                    <input type="radio" name="taskType" value="pretask" checked>
+                    <span class="segment-text" style="font-size: 0.75rem;">Pre-Task</span>
+                </label>
+                <label class="segment-label">
+                    <input type="radio" name="taskType" value="routine">
+                    <span class="segment-text" style="font-size: 0.75rem;">Routine</span>
                 </label>
                 <label class="segment-label">
                     <input type="radio" name="taskType" value="station">
-                    <span class="segment-text">Station</span>
+                    <span class="segment-text" style="font-size: 0.75rem;">Station</span>
                 </label>
                 <label class="segment-label">
                     <input type="radio" name="taskType" value="overall">
-                    <span class="segment-text">Overall</span>
+                    <span class="segment-text" style="font-size: 0.75rem;">Overall</span>
                 </label>
             </div>
 
             <!-- Staff Selection -->
             <div class="form-group" style="margin-bottom: 2rem;">
-                <label class="field-label">Staff Name</label>
+                <label class="field-label">Staff Name / Rider Name</label>
                 <select class="input-field" id="staffName" name="staffName" required>
                     <option value="" disabled selected>Who is checking?</option>
                     <option value="Kabir">Kabir</option>
@@ -44,8 +48,15 @@
             </div>
 
             <div id="dynamic-sections">
+                <!-- Pre-Task Section -->
+                <div id="section-pretask" class="task-section">
+                    <label class="section-title">Pre-Task Check</label>
+                    <div id="pretask-cycles-container"></div>
+                    <button type="button" id="addPretaskCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+
                 <!-- Routine Checkup Section -->
-                <div id="section-routine" class="task-section">
+                <div id="section-routine" class="task-section hidden">
                     <label class="section-title">Routine Checkup Entries</label>
                     <div id="routine-cycles-container"></div>
                     <button type="button" id="addRoutineCycleBtn" class="btn-ghost">+ Add another cycle</button>
