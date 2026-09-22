@@ -26,20 +26,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- TWO-WAY SYNC FOR PRE-TASK ---
     let fetchedCycles = [];
+    let isSyncing = false;
     
     window.handleSyncData = function(response) {
+        isSyncing = false;
         // Deduplicate cycles in case they were checked multiple times (keep latest)
         const uniqueCycles = {};
-        response.data.forEach(c => {
-            uniqueCycles[c.cycleId] = c;
-        });
+        if (response && response.data) {
+            response.data.forEach(c => {
+                uniqueCycles[c.cycleId] = c;
+            });
+        }
         fetchedCycles = Object.values(uniqueCycles);
         updatePretaskDropdowns();
     };
 
     function fetchYesterdayData() {
+        isSyncing = true;
+        updatePretaskDropdowns();
+        
         const script = document.createElement('script');
-        script.src = SCRIPT_URL + '?callback=handleSyncData';
+        // Add cache-buster so browser actually fetches new data instead of using cache
+        script.src = SCRIPT_URL + '?callback=handleSyncData&t=' + new Date().getTime();
+        
+        // Clean up script tag after loading
+        script.onload = () => script.remove();
+        script.onerror = () => {
+            isSyncing = false;
+            updatePretaskDropdowns();
+        };
+        
         document.body.appendChild(script);
     }
 
@@ -47,17 +63,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentStaff = staffSelect.value;
         const selects = document.querySelectorAll('.pretask-cycle-select');
         
-        // Rule: Cycle must have been checked yesterday in Routine, and NOT by this current staff
-        const eligible = fetchedCycles.filter(c => c.staffName !== currentStaff);
-        
         selects.forEach(select => {
             const currentVal = select.value;
             select.innerHTML = '<option value="" disabled selected>Select an eligible cycle...</option>';
             
-            if (fetchedCycles.length === 0) {
+            if (!currentStaff) {
+                select.innerHTML = '<option value="" disabled selected>Please select your name first ↑</option>';
+                return;
+            }
+
+            if (isSyncing) {
                 select.innerHTML = '<option value="" disabled selected>Syncing data... Please wait.</option>';
                 return;
             }
+
+            // Rule: Cycle must have been checked yesterday in Routine, and NOT by this current staff
+            const eligible = fetchedCycles.filter(c => c.staffName !== currentStaff);
 
             if (eligible.length === 0) {
                 select.innerHTML = '<option value="" disabled selected>No eligible cycles found</option>';
@@ -116,6 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sections[e.target.value]) {
                 sections[e.target.value].classList.remove('hidden');
                 updateAssignedStaff(e.target.value);
+
+                // Instantly fetch fresh data every time they tap the Pre-Task tab
+                if (e.target.value === 'pretask') {
+                    fetchYesterdayData();
+                }
             }
         });
     });
