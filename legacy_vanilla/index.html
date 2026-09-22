@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Data Entry</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="header-title">Data Entry</h1>
+        </header>
+
+        <!-- HOME SCREEN -->
+        <div id="home-screen">
+            <label class="field-label" style="margin-top: 1rem;">Select Task</label>
+            <div class="task-grid">
+                <button type="button" class="task-btn" data-task="pretask">Pre-Task</button>
+                <button type="button" class="task-btn" data-task="routine">Routine</button>
+                <button type="button" class="task-btn" data-task="station">Station</button>
+                <button type="button" class="task-btn" data-task="overall">Overall</button>
+                <button type="button" class="task-btn" data-task="maintenance" style="grid-column: span 2; background-color: #f59e0b; color: #fff;">Maintenance (Repairs)</button>
+            </div>
+        </div>
+
+        <!-- FORM SCREEN -->
+        <form id="workForm" class="hidden">
+            <button type="button" id="backBtn" class="btn-ghost" style="text-align: left; padding: 0.5rem 0; margin-bottom: 1rem; color: #3b82f6;">← Back</button>
+            
+            <div class="form-group" style="margin-bottom: 2rem;">
+                <label class="field-label">Staff Name / Rider Name</label>
+                <select class="input-field" id="staffName" name="staffName" required>
+                    <option value="" disabled selected>Who is checking?</option>
+                    <option value="Kabir">Kabir</option>
+                    <option value="Laxman Ram">Laxman Ram</option>
+                    <option value="Anish">Anish</option>
+                    <option value="Surya">Surya</option>
+                    <option value="Dipesh">Dipesh</option>
+                </select>
+                <p id="assignmentNote" style="font-size: 0.75rem; color: #10b981; margin-top: 0.5rem; display: none; font-weight: 500;"></p>
+            </div>
+            
+            <input type="hidden" name="taskType" id="hiddenTaskType" value="">
+
+            <div id="dynamic-sections">
+                <!-- Pre-Task Section -->
+                <div id="section-pretask" class="task-section hidden">
+                    <label class="section-title">Pre-Task Check</label>
+                    <div id="pretask-cycles-container"></div>
+                    <button type="button" id="addPretaskCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+
+                <!-- Routine Checkup Section -->
+                <div id="section-routine" class="task-section hidden">
+                    <label class="section-title">Routine Checkup Entries</label>
+                    <div id="routine-cycles-container"></div>
+                    <button type="button" id="addRoutineCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+
+                <!-- Station Visit Section -->
+                <div id="section-station" class="task-section hidden">
+                    <label class="section-title">Lazimpat Station Visit (up to 5)</label>
+                    <div id="station-cycles-container"></div>
+                    <button type="button" id="addStationCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+
+                <!-- Overall Checkup Section -->
+                <div id="section-overall" class="task-section hidden">
+                    <label class="section-title">Dillibazar Overall Checkup Entries</label>
+                    <div id="overall-cycles-container"></div>
+                    <button type="button" id="addCycleBtn" class="btn-ghost">+ Add another cycle</button>
+                </div>
+
+                <!-- Maintenance Section -->
+                <div id="section-maintenance" class="task-section hidden">
+                    <label class="section-title">Maintenance & Repairs</label>
+                    <div id="maintenance-cycles-container"></div>
+                    <!-- Single form for maintenance, no multi-add for now to keep it simple -->
+                </div>
+            </div>
+
+            <div class="bottom-actions">
+                <button type="button" id="clearBtn" class="btn-clear">Clear</button>
+                <button type="submit" id="submitBtn" class="btn-submit">Submit</button>
+            </div>
+        </form>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

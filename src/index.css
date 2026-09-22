@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #111827;
+  --color-secondary: #f3f4f6;
+  --color-accent: #f59e0b;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Report preview - mirrors the clean A4 reference layout without changing content. */
+#pdf-report-content.report-document {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 210mm;
+  margin-right: auto;
+  margin-left: auto;
+  padding: 18mm 16mm;
+  border-color: #e5e7eb;
+  border-radius: 0;
+  color: #111827;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  text-align: left;
+}
+
+#pdf-report-content .report-header {
+  position: relative;
+  display: block;
+  margin-bottom: 30px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+#pdf-report-content .report-header > div:first-child {
+  width: 100%;
+}
+
+#pdf-report-content .report-header h2 {
+  margin: 0 0 9px;
+  padding: 0;
+  border-bottom: 0;
+  color: #050505;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+#pdf-report-content .report-header p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+#pdf-report-content .report-header > div:last-child {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  color: #4b5563;
+  font-size: 11px;
+}
+
+#pdf-report-content > div:not(.report-header):not(.report-footer) {
+  margin-bottom: 25px;
+}
+
+#pdf-report-content h3 {
+  margin: 0 0 12px;
+  padding: 0;
+  border-bottom: 0;
+  color: #050505;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+#pdf-report-content p {
+  color: #111827;
+}
+
+#pdf-report-content table {
+  width: 100%;
+  margin-bottom: 14px;
+  border-collapse: collapse;
+  color: #111827;
+}
+
+#pdf-report-content th,
+#pdf-report-content td {
+  padding: 7px 8px;
+  border: 0;
+  vertical-align: top;
+}
+
+#pdf-report-content th {
+  color: #050505;
+  font-weight: 700;
+}
+
+#pdf-report-content tr {
+  border: 0 !important;
+}
+
+#pdf-report-content .whitespace-pre-wrap {
+  padding: 0;
+}
+
+#pdf-report-content .report-footer {
+  margin-top: 28px;
+  padding-top: 0;
+  border-top: 0;
+  color: #4b5563;
+}
+
+@media (max-width: 767px) {
+  #pdf-report-content.report-document {
+    padding: 28px 22px;
+  }
+
+  #pdf-report-content .report-header > div:last-child {
+    position: static;
+    margin-top: 4px;
+    text-align: left;
+  }
+}
+
+/* Print Styles for the PDF generator */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 18mm 16mm;
+  }
+  
+  html,
+  body {
+    background-color: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #pdf-report-content,
+  #pdf-report-content * {
+    visibility: visible !important;
+  }
+
+  #pdf-report-content.report-document {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  #pdf-report-content .report-header {
+    margin-bottom: 24px;
+  }
+
+  #pdf-report-content .report-header h2 {
+    font-size: 20pt;
+  }
+
+  #pdf-report-content h3 {
+    font-size: 15pt;
+  }
+
+  #pdf-report-content h2,
+  #pdf-report-content h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  #pdf-report-content table,
+  #pdf-report-content thead,
+  #pdf-report-content tr,
+  #pdf-report-content .report-staff-detail,
+  #pdf-report-content .whitespace-pre-wrap {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  #pdf-report-content > div:not(.report-header):not(.report-footer) {
+    margin-bottom: 21px;
+  }
+}
