@@ -3,6 +3,8 @@ import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus 
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
 
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
+
 export default function AdminDashboard() {
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -16,13 +18,23 @@ export default function AdminDashboard() {
   const [assignMsg, setAssignMsg] = useState('');
   const [assigning, setAssigning] = useState(false);
 
-  // Editable report sections (persisted in localStorage)
-  const [riderInstructions, setRiderInstructions] = useState('');
-  const [extraNotes, setExtraNotes] = useState('');
+  const DEFAULT_OVERRIDES = {
+    executive: '',
+    routine: '',
+    pretask: '',
+    overall: '',
+    station: '',
+    individual: '',
+    rider: '',
+    mechanical: '',
+    extra: ''
+  };
+  const [overrides, setOverrides] = useState(DEFAULT_OVERRIDES);
+  const [activeEditSection, setActiveEditSection] = useState('executive');
+
   const reportDateKey = getLocalDateKey();
   const dailyAssignments = getDailyAssignments();
-  const riderInstructionsKey = `zum_riderInstructions_${reportDateKey}`;
-  const extraNotesKey = `zum_extraNotes_${reportDateKey}`;
+  const overridesKey = `zum_report_overrides_${reportDateKey}`;
 
   const handleAssign = async (e) => {
     if (e) e.preventDefault();
@@ -56,24 +68,25 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    const savedInstructions = localStorage.getItem(riderInstructionsKey);
-    if (savedInstructions !== null) setRiderInstructions(savedInstructions);
-    const savedNotes = localStorage.getItem(extraNotesKey);
-    if (savedNotes !== null) setExtraNotes(savedNotes);
-  }, [riderInstructionsKey, extraNotesKey]);
+    const savedOverrides = localStorage.getItem(overridesKey);
+    if (savedOverrides) {
+      try {
+        setOverrides(JSON.parse(savedOverrides));
+      } catch (e) {
+        console.error("Error parsing overrides:", e);
+      }
+    }
+  }, [overridesKey]);
 
   const handleUpdateNotes = () => {
-    localStorage.setItem(riderInstructionsKey, riderInstructions);
-    localStorage.setItem(extraNotesKey, extraNotes);
+    localStorage.setItem(overridesKey, JSON.stringify(overrides));
     setIsEditingNotes(false);
   };
 
   const handleClearNotes = () => {
     if (window.confirm("Are you sure you want to permanently delete these notes?")) {
-      setRiderInstructions('');
-      setExtraNotes('');
-      localStorage.removeItem(riderInstructionsKey);
-      localStorage.removeItem(extraNotesKey);
+      setOverrides(DEFAULT_OVERRIDES);
+      localStorage.removeItem(overridesKey);
       setIsEditingNotes(false);
     }
   };
@@ -92,7 +105,7 @@ export default function AdminDashboard() {
     try {
       const { start, end } = getCurrentShiftWindow();
 
-      const { data: tasksData, error: taskError } = await supabase
+      const { data: tasksDataRaw, error: taskError } = await supabase
         .from('tasks')
         .select('*')
         .gte('created_at', start)
@@ -100,6 +113,10 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: true });
         
       if (taskError) throw taskError;
+
+      // HOTFIX: Filter out faulty records that were saved to Supabase but not Google Sheets today
+      const badIds = [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
+      const tasksData = tasksDataRaw ? tasksDataRaw.filter(t => !badIds.includes(t.id)) : [];
 
       const { data: maintData, error: maintError } = await supabase
         .from('maintenance')
@@ -233,6 +250,18 @@ export default function AdminDashboard() {
     addStaffWork(staff, `completed ${recordLabel(count, 'mechanical maintenance activity')}`);
   });
 
+  const sectionTitles = {
+    executive: "1. Executive Operations Summary",
+    routine: "2. Routine Cycle Checkups",
+    pretask: "3. Pre-Task Cross Check",
+    overall: "4. Overall Cycle Checkup",
+    station: "5. Station Visit",
+    individual: "6. Individual Staff Work Summary",
+    rider: "7. Rider Data Collection Instructions",
+    mechanical: "8. Mechanical Repair Work",
+    extra: "9. Extra Work & Remarks"
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#f3f4f6] font-sans text-gray-800 overflow-hidden">
       {/* Sidebar */}
@@ -299,7 +328,7 @@ export default function AdminDashboard() {
                     <select 
                       value={assignStaff} 
                       onChange={e => setAssignStaff(e.target.value)}
-                      className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none text-sm"
+                      className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none text-sm bg-gray-50"
                     >
                        <option value="">Select Staff Member...</option>
                        <option value="Kabir">Kabir</option>
@@ -316,7 +345,7 @@ export default function AdminDashboard() {
                       placeholder="e.g. 101, 55, 89"
                       value={assignCycles}
                       onChange={e => setAssignCycles(e.target.value)}
-                      className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 text-sm"
+                      className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 text-sm bg-gray-50"
                     />
                 </div>
               </div>
@@ -333,7 +362,7 @@ export default function AdminDashboard() {
             {activeTab === 'reports' && (
               <>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex justify-between items-center mb-6">
                  <h3 className="text-gray-900 text-lg">Report Configuration</h3>
                  {!isEditingNotes ? (
                     <button onClick={() => setIsEditingNotes(true)} className="px-5 py-2 bg-white border border-gray-200 text-gray-800 rounded-full text-sm hover:bg-gray-50 transition shadow-sm">
@@ -356,23 +385,26 @@ export default function AdminDashboard() {
               
               <div className="flex flex-col gap-4">
                 <div>
-                  <label className="block text-sm text-gray-500 mb-2">Rider Data Instructions</label>
-                  <textarea 
-                    className={`w-full p-4 rounded-xl border-none outline-none text-sm text-gray-900 font-mono ${isEditingNotes ? 'focus:ring-2 focus:ring-black' : 'opacity-60 cursor-not-allowed'}`}
-                    rows="3"
-                    value={riderInstructions}
-                    onChange={e => setRiderInstructions(e.target.value)}
-                    readOnly={!isEditingNotes}
-                  />
+                  <label className="block text-sm text-gray-500 mb-2">Select Section to Edit</label>
+                  <select 
+                    className={`w-full p-3 rounded-xl border-none outline-none text-sm text-gray-900 appearance-none ${isEditingNotes ? 'bg-gray-50 focus:ring-2 focus:ring-black cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
+                    value={activeEditSection}
+                    onChange={e => setActiveEditSection(e.target.value)}
+                    disabled={!isEditingNotes}
+                  >
+                    {Object.entries(sectionTitles).map(([key, title]) => (
+                      <option key={key} value={key}>{title}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-500 mb-2">Add Extra Work / Remarks</label>
+                  <label className="block text-sm text-gray-500 mb-2">Override Text (Leave empty to use automated text)</label>
                   <textarea 
-                    className={`w-full p-4 rounded-xl border-none outline-none text-sm text-gray-900 ${isEditingNotes ? 'focus:ring-2 focus:ring-black' : 'opacity-60 cursor-not-allowed'}`}
-                    rows="2"
-                    placeholder="Type any extra work done today..."
-                    value={extraNotes}
-                    onChange={e => setExtraNotes(e.target.value)}
+                    className={`w-full p-4 rounded-xl border-none outline-none text-sm text-gray-900 whitespace-pre-wrap ${isEditingNotes ? 'bg-gray-50 focus:ring-2 focus:ring-black' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
+                    rows="4"
+                    placeholder={`Type override text for ${sectionTitles[activeEditSection]}...`}
+                    value={overrides[activeEditSection]}
+                    onChange={e => setOverrides({ ...overrides, [activeEditSection]: e.target.value })}
                     readOnly={!isEditingNotes}
                   />
                 </div>
@@ -394,12 +426,18 @@ export default function AdminDashboard() {
               {/* Section 1: Executive Summary */}
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">1. Executive Operations Summary</h3>
-                <p className="text-sm leading-relaxed text-gray-900">
-                  This report summarizes the operational work recorded for the current shift. The team submitted {recordLabel(routineTotal, 'routine checkup record')} across {recordLabel(routineStaff.length, 'staff member')}, {recordLabel(pretaskTotal, 'pre-task cross-check record')}, {recordLabel(overallRows.length, 'overall checkup record')}, and {recordLabel(stationRows.length, 'station visit record')}. The maintenance team also logged {recordLabel(maintenance.length, 'repair activity')}.
-                </p>
-                <p className="text-sm leading-relaxed text-gray-900 mt-3">
-                  The sections below provide a staff-level summary followed by the detailed cycle records, recorded conditions, inspection information, and maintenance work submitted during the shift.
-                </p>
+                {overrides.executive.trim() ? (
+                  <p className="text-sm leading-relaxed text-gray-900 whitespace-pre-wrap">{overrides.executive}</p>
+                ) : (
+                  <>
+                    <p className="text-sm leading-relaxed text-gray-900">
+                      This report summarizes the operational work recorded for the current shift. The team submitted {recordLabel(routineTotal, 'routine checkup record')} across {recordLabel(routineStaff.length, 'staff member')}, {recordLabel(pretaskTotal, 'pre-task cross-check record')}, {recordLabel(overallRows.length, 'overall checkup record')}, and {recordLabel(stationRows.length, 'station visit record')}. The maintenance team also logged {recordLabel(maintenance.length, 'repair activity')}.
+                    </p>
+                    <p className="text-sm leading-relaxed text-gray-900 mt-3">
+                      The sections below provide a staff-level summary followed by the detailed cycle records, recorded conditions, inspection information, and maintenance work submitted during the shift.
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Section 2: Routine Checkup — Summary + Individual detail per staff */}
@@ -409,9 +447,13 @@ export default function AdminDashboard() {
                   <p className="text-sm text-gray-900">No routine checkups were submitted for this shift.</p>
                 ) : (
                   <>
-                    <p className="text-sm leading-relaxed text-gray-900 mb-4">
-                      Routine condition checks were completed by {routineStaff.join(', ')}. Together, they submitted {recordLabel(routineTotal, 'cycle checkup record')}. The summary table shows how the recorded work was distributed among staff members.
-                    </p>
+                    {overrides.routine.trim() ? (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-4 whitespace-pre-wrap">{overrides.routine}</p>
+                    ) : (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-4">
+                        Routine condition checks were completed by {routineStaff.join(', ')}. Together, they submitted {recordLabel(routineTotal, 'cycle checkup record')}. The summary table shows how the recorded work was distributed among staff members.
+                      </p>
+                    )}
                     {/* Summary table */}
                     <table className="w-full text-sm text-left border-collapse mb-4">
                       <thead>
@@ -450,9 +492,13 @@ export default function AdminDashboard() {
                   <p className="text-sm text-gray-900">No pre-task cross checks were submitted for this shift.</p>
                 ) : (
                   <>
-                    <p className="text-sm leading-relaxed text-gray-900 mb-4">
-                      The team submitted {recordLabel(pretaskTotal, 'pre-task cross check')} before cycles entered operation. These records document the submitted cycle condition and any parts or issues noted during the check.
-                    </p>
+                    {overrides.pretask.trim() ? (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-4 whitespace-pre-wrap">{overrides.pretask}</p>
+                    ) : (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-4">
+                        The team submitted {recordLabel(pretaskTotal, 'pre-task cross check')} before cycles entered operation. These records document the submitted cycle condition and any parts or issues noted during the check.
+                      </p>
+                    )}
                     {pretaskStaff.map(staff => {
                       const rows = data.pretask[staff] || [];
                       const staffIssueCount = issueCount(rows);
@@ -490,12 +536,16 @@ export default function AdminDashboard() {
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">4. Overall Cycle Checkup</h3>
                 {overallRows.length === 0 ? (
-                  <p className="text-sm text-gray-900">No overall cycle checkup was submitted today. The assigned staff member is {data.overall.staff}.</p>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.overall || `No overall cycle checkup was submitted today. The assigned staff member is ${data.overall.staff}.`}</p>
                 ) : (
                   <>
-                    <p className="text-sm leading-relaxed text-gray-900 mb-3">
-                      {data.overall.staff} completed {recordLabel(overallRows.length, 'overall cycle inspection')} covering cycle IDs {cycleIds(overallRows)}. {overallIssueCount === 0 ? 'All submitted records were marked in good condition.' : `${recordLabel(overallIssueCount, 'record')} ${overallIssueCount === 1 ? 'was' : 'were'} marked with an issue requiring follow-up.`}
-                    </p>
+                    {overrides.overall.trim() ? (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-3 whitespace-pre-wrap">{overrides.overall}</p>
+                    ) : (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-3">
+                        {data.overall.staff} completed {recordLabel(overallRows.length, 'overall cycle inspection')} covering cycle IDs {cycleIds(overallRows)}. {overallIssueCount === 0 ? 'All submitted records were marked in good condition.' : `${recordLabel(overallIssueCount, 'record')} ${overallIssueCount === 1 ? 'was' : 'were'} marked with an issue requiring follow-up.`}
+                      </p>
+                    )}
                     <p className="text-sm mb-2"><span className="font-medium text-gray-900">Staff:</span> {data.overall.staff} &nbsp;|&nbsp; <span className="font-medium text-gray-900">Total Cycles:</span> {overallRows.length}</p>
                     <table className="w-full text-xs text-left border-collapse">
                       <thead>
@@ -525,12 +575,16 @@ export default function AdminDashboard() {
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">5. Station Visit</h3>
                 {stationRows.length === 0 ? (
-                  <p className="text-sm text-gray-900">No station visit was submitted today. The assigned staff member is {data.station.staff}.</p>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.station || `No station visit was submitted today. The assigned staff member is ${data.station.staff}.`}</p>
                 ) : (
                   <>
-                    <p className="text-sm leading-relaxed text-gray-900 mb-3">
-                      {data.station.staff} submitted {recordLabel(stationRows.length, 'station inspection record')} for cycle IDs {cycleIds(stationRows)}. {stationIssueCount === 0 ? 'No issue was recorded in the submitted station entries.' : `${recordLabel(stationIssueCount, 'station record')} ${stationIssueCount === 1 ? 'was' : 'were'} marked with an issue.`}
-                    </p>
+                    {overrides.station.trim() ? (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-3 whitespace-pre-wrap">{overrides.station}</p>
+                    ) : (
+                      <p className="text-sm leading-relaxed text-gray-900 mb-3">
+                        {data.station.staff} submitted {recordLabel(stationRows.length, 'station inspection record')} for cycle IDs {cycleIds(stationRows)}. {stationIssueCount === 0 ? 'No issue was recorded in the submitted station entries.' : `${recordLabel(stationIssueCount, 'station record')} ${stationIssueCount === 1 ? 'was' : 'were'} marked with an issue.`}
+                      </p>
+                    )}
                     <p className="text-sm mb-2"><span className="font-medium text-gray-900">Staff:</span> {data.station.staff} &nbsp;|&nbsp; <span className="font-medium text-gray-900">Total Cycles:</span> {stationRows.length}</p>
                     <p className="text-xs text-gray-900">{cycleIds(stationRows)}</p>
                   </>
@@ -540,24 +594,28 @@ export default function AdminDashboard() {
               {/* Section 6: Individual Staff Work */}
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">6. Individual Staff Work Summary</h3>
-                {staffWork.size === 0 ? (
-                  <p className="text-sm text-gray-900">No individual staff work was submitted today.</p>
+                {overrides.individual.trim() ? (
+                  <p className="text-sm leading-relaxed text-gray-900 whitespace-pre-wrap">{overrides.individual}</p>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    {Array.from(staffWork.entries()).map(([staff, activities]) => (
-                      <p key={staff} className="text-sm leading-relaxed text-gray-900">
-                        <span className="font-bold">{staff}:</span> {activities.join('; ')}.
-                      </p>
-                    ))}
-                  </div>
+                  staffWork.size === 0 ? (
+                    <p className="text-sm text-gray-900">No individual staff work was submitted today.</p>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {Array.from(staffWork.entries()).map(([staff, activities]) => (
+                        <p key={staff} className="text-sm leading-relaxed text-gray-900">
+                          <span className="font-bold">{staff}:</span> {activities.join('; ')}.
+                        </p>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
 
               {/* Section 7: Rider Instructions */}
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">7. Rider Data Collection Instructions</h3>
-                {riderInstructions.trim() ? (
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-900 p-4 ">{riderInstructions}</div>
+                {overrides.rider.trim() ? (
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-900 p-4 ">{overrides.rider}</div>
                 ) : (
                   <p className="text-sm text-gray-900">No additional rider data collection instructions were added for this shift.</p>
                 )}
@@ -566,11 +624,15 @@ export default function AdminDashboard() {
               {/* Section 8: Mechanical Repair */}
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">8. Mechanical Repair Work</h3>
-                <p className="text-sm leading-relaxed text-gray-900 mb-4">
-                  {maintenance.length === 0
-                    ? 'No mechanical repair work was submitted for this shift.'
-                    : `The maintenance team submitted ${recordLabel(maintenance.length, 'repair activity')}. Each record below identifies the cycle, responsible staff member, and the repair or fix description entered during the shift.`}
-                </p>
+                {overrides.mechanical.trim() ? (
+                  <p className="text-sm leading-relaxed text-gray-900 mb-4 whitespace-pre-wrap">{overrides.mechanical}</p>
+                ) : (
+                  <p className="text-sm leading-relaxed text-gray-900 mb-4">
+                    {maintenance.length === 0
+                      ? 'No mechanical repair work was submitted for this shift.'
+                      : `The maintenance team submitted ${recordLabel(maintenance.length, 'repair activity')}. Each record below identifies the cycle, responsible staff member, and the repair or fix description entered during the shift.`}
+                  </p>
+                )}
                 <table className="w-full text-sm text-left border-collapse">
                   <thead>
                     <tr className="border-b border-gray-900 ">
@@ -598,8 +660,8 @@ export default function AdminDashboard() {
               {/* Section 9: Extra Remarks */}
               <div className="mb-8">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">9. Extra Work &amp; Remarks</h3>
-                {extraNotes.trim() ? (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-gray-900 p-4 ">{extraNotes}</p>
+                {overrides.extra.trim() ? (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-gray-900 p-4 ">{overrides.extra}</p>
                 ) : (
                   <p className="text-sm text-gray-900">No additional work or remarks were recorded for this shift.</p>
                 )}

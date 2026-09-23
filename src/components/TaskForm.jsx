@@ -136,6 +136,19 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     }));
   };
 
+  const handleSelectAllParts = (id) => {
+    setCycles(cycles.map(c => {
+      if (c.id === id) {
+        if (c.partsChecked.length === PARTS_LIST.length) {
+          return { ...c, partsChecked: [] }; // deselect all
+        } else {
+          return { ...c, partsChecked: PARTS_LIST.map(p => p.name) }; // select all
+        }
+      }
+      return c;
+    }));
+  };
+
   const [saveMsg, setSaveMsg] = useState('');
   const [saveError, setSaveError] = useState('');
 
@@ -241,27 +254,39 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     setIsSubmitting(false);
   };
 
-  const renderPartsChecked = (cycle) => (
-    <div className="mb-4">
-      <label className="block text-sm  text-gray-700 mb-2">Parts Checked</label>
-      <div className="grid grid-cols-2 gap-2">
-        {PARTS_LIST.map(p => (
-          <label key={p.name} className="flex items-center space-x-2 p-2 bg-gray-50 rounded border border-gray-200 cursor-pointer hover:bg-gray-100">
-            <input 
-              type="checkbox" 
-              className="rounded text-black focus:ring-black"
-              checked={cycle.partsChecked.includes(p.name)}
-              onChange={() => togglePart(cycle.id, p.name)}
-            />
-            <span className="text-sm flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
-              {p.name}
-            </span>
-          </label>
-        ))}
+  const renderPartsChecked = (cycle) => {
+    const allSelected = cycle.partsChecked.length === PARTS_LIST.length;
+    return (
+      <div className="mb-4">
+        <div className="flex justify-between items-end mb-2">
+          <label className="block text-sm text-gray-700">Parts Checked</label>
+          <button 
+            type="button" 
+            onClick={() => handleSelectAllParts(cycle.id)} 
+            className="text-xs text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-2 py-1 rounded"
+          >
+            {allSelected ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {PARTS_LIST.map(p => (
+            <label key={p.name} className="flex items-center space-x-2 p-2 bg-gray-50 rounded border border-gray-200 cursor-pointer hover:bg-gray-100">
+              <input 
+                type="checkbox" 
+                className="rounded text-black focus:ring-black"
+                checked={cycle.partsChecked.includes(p.name)}
+                onChange={() => togglePart(cycle.id, p.name)}
+              />
+              <span className="text-sm flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
+                {p.name}
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <form onSubmit={handleSubmit} className="w-full relative">
