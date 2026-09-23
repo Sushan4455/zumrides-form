@@ -55,18 +55,24 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             setAssignedCycles([]);
           }
 
-          // Fetch pre-task eligible cycles (other staff routine checks from current shift)
-          const { data: pretaskData } = await supabase
+          // Fetch all cycles interacted with during the current shift
+          const { data: allData } = await supabase
             .from('tasks')
             .select('*')
-            .in('task_type', ['Routine Checkup', 'routine'])
-            .neq('staff_name', staffName)
             .gte('created_at', start)
             .lt('created_at', end);
 
-          if (pretaskData) {
+          if (allData) {
             const unique = {};
-            pretaskData.forEach(c => unique[c.cycle_id] = c);
+            if (taskType === 'pretask') {
+               // For pre-task: Show cycles touched by OTHER staff
+               const filtered = allData.filter(c => c.staff_name !== staffName);
+               filtered.forEach(c => unique[c.cycle_id] = c);
+            } else if (taskType === 'routine') {
+               // For routine: Show cycles touched by THIS staff via Pre-Task
+               const filtered = allData.filter(c => c.staff_name === staffName && (c.task_type === 'Pre-Task Check' || c.task_type === 'pretask'));
+               filtered.forEach(c => unique[c.cycle_id] = c);
+            }
             setEligibleCycles(Object.values(unique));
           }
         } catch (error) {
@@ -327,10 +333,12 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                       </optgroup>
                     )}
 
-                    {taskType === 'pretask' && eligibleCycles.length > 0 && (
-                      <optgroup label="From Previous Shifts">
+                    {eligibleCycles.length > 0 && (
+                      <optgroup label={taskType === 'pretask' ? "From Previous Shifts" : "Your Pre-Task Cycles"}>
                         {eligibleCycles.map((c, i) => (
-                          <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>{c.cycleId || c.cycle_id} (via {c.staffName || c.staff_name})</option>
+                          <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>
+                             {c.cycleId || c.cycle_id} {taskType === 'pretask' && `(via ${c.staffName || c.staff_name})`}
+                          </option>
                         ))}
                       </optgroup>
                     )}

@@ -7,6 +7,7 @@ import { getDailyAssignments } from "./utils";
 function App() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [staffName, setStaffName] = useState('');
+  const [nameError, setNameError] = useState(false);
   const dailyAssignments = getDailyAssignments();
 
   const openAssignedTask = (taskType, assignedStaff) => {
@@ -37,7 +38,11 @@ function App() {
 
           <div>
             <label className="block text-sm font-medium text-gray-500 mb-2">Your Name</label>
-            <select value={staffName} onChange={(e) => setStaffName(e.target.value)} className="w-full rounded-xl bg-gray-100 px-4 py-4 text-base font-medium text-gray-900 border-none outline-none appearance-none focus:ring-2 focus:ring-black">
+            <select 
+              value={staffName} 
+              onChange={(e) => { setStaffName(e.target.value); setNameError(false); }} 
+              className={`w-full rounded-xl bg-gray-100 px-4 py-4 text-base font-medium text-gray-900 outline-none appearance-none focus:ring-2 focus:ring-black ${nameError ? 'border border-red-500' : 'border-none'}`}
+            >
               <option value="" disabled>Enter your name...</option>
               <optgroup label="Operations Team">
                 <option value="Kabir">Kabir</option>
@@ -51,13 +56,14 @@ function App() {
                 <option value="Dipesh">Dipesh</option>
               </optgroup>
             </select>
+            {nameError && <p className="text-red-500 text-sm mt-2 font-medium">Please select your name first!</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            <button onClick={() => { if(!staffName) return alert('Select staff name first!'); setSelectedTask('routine'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
+            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('routine'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
               <ClipboardList size={24} /> <span>Routine</span>
             </button>
-            <button onClick={() => { if(!staffName) return alert('Select staff name first!'); setSelectedTask('pretask'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
+            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('pretask'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
               <ClipboardList size={24} /> <span>Pre-Task</span>
             </button>
             <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('overall', dailyAssignments.overall)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
@@ -68,7 +74,7 @@ function App() {
               <ClipboardList size={24} /> <span>Station</span>
               <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.station} today` : 'No Saturday assignment'}</span>
             </button>
-            <button onClick={() => { if(!staffName) return alert('Select staff name first!'); setSelectedTask('maintenance'); }} className="col-span-2 mt-1 min-h-12 rounded-full bg-gray-900 px-5 py-3.5 text-white border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2 sm:mt-2 sm:min-h-14">
+            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('maintenance'); }} className="col-span-2 mt-1 min-h-12 rounded-full bg-gray-900 px-5 py-3.5 text-white border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2 sm:mt-2 sm:min-h-14">
               <Wrench size={20} /> <span>Maintenance</span>
             </button>
           </div>
