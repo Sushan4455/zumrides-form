@@ -31,11 +31,22 @@ export default function AdminDashboard() {
     setAssignMsg("");
     
     try {
+      // 1. Save to Supabase
       const { error } = await supabase.from('assignments').insert({
         staff_name: assignStaff,
         cycles: assignCycles
       });
       if (error) throw error;
+
+      // 2. Save to Google Sheets
+      const formData = new FormData();
+      formData.append('data', JSON.stringify({
+        action: 'assign',
+        staffName: assignStaff,
+        cycles: assignCycles
+      }));
+      fetch(APPS_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: formData }).catch(() => {});
+
       setAssignMsg("✅ Successfully assigned cycles!");
       setAssignCycles('');
     } catch (err) {
