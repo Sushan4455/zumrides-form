@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus } from 'lucide-react';
+import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, Database } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
 
@@ -31,6 +31,8 @@ export default function AdminDashboard() {
   };
   const [overrides, setOverrides] = useState(DEFAULT_OVERRIDES);
   const [activeEditSection, setActiveEditSection] = useState('executive');
+  const [rawTasks, setRawTasks] = useState([]);
+  const [rawMaint, setRawMaint] = useState([]);
 
   const reportDateKey = getLocalDateKey();
   const dailyAssignments = getDailyAssignments();
@@ -91,17 +93,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    
-    if (password !== 'Admin123') {
-      setError('Invalid password.');
-      setLoading(false);
-      return;
-    }
-
+  const fetchDashboardData = async () => {
     try {
       const { start, end } = getCurrentShiftWindow();
 
@@ -114,9 +106,10 @@ export default function AdminDashboard() {
         
       if (taskError) throw taskError;
 
-      // HOTFIX: Filter out faulty records that were saved to Supabase but not Google Sheets today
+      // Filter out faulty records that were saved to Supabase but not Google Sheets today
       const badIds = [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
       const tasksData = tasksDataRaw ? tasksDataRaw.filter(t => !badIds.includes(t.id)) : [];
+      setRawTasks(tasksData);
 
       const { data: maintData, error: maintError } = await supabase
         .from('maintenance')
@@ -126,6 +119,7 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: true });
         
       if (maintError) throw maintError;
+      setRawMaint(maintData || []);
 
       const result = {
         routine: {},    // { staffName: [{ cycle_id, battery_id, condition, issue, parts_checked, odometer }] }
@@ -161,12 +155,44 @@ export default function AdminDashboard() {
         });
       }
 
-      setIsAuthenticated(true);
       setData(result);
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    
+    if (password !== 'Admin123') {
+      setError('Invalid password.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      await fetchDashboardData();
+      setIsAuthenticated(true);
     } catch (err) {
       setError('Connection error: ' + err.message);
     }
     setLoading(false);
+  };
+
+  const handleDeleteRecord = async (table, id) => {
+    if (!window.confirm(`Are you sure you want to delete this record from ${table}? This cannot be undone.`)) return;
+    
+    try {
+      const { error } = await supabase.from(table).delete().eq('id', id);
+      if (error) throw error;
+      
+      alert('Record deleted successfully!');
+      await fetchDashboardData(); // Refresh UI and PDF data automatically
+    } catch (err) {
+      alert('Error deleting record: ' + err.message + '\nMake sure you ran the SQL script to allow deletes!');
+    }
   };
 
   const generatePDF = () => {
@@ -296,6 +322,12 @@ export default function AdminDashboard() {
             >
               <Users size={18} /> Assign Cycles
             </button>
+            <button 
+              onClick={() => setActiveTab('manage_data')}
+              className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg w-full text-left ${activeTab === 'manage_data' ? 'text-gray-900 bg-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <Database size={18} /> Manage Data
+            </button>
           </nav>
         </div>
       </div>
@@ -304,7 +336,9 @@ export default function AdminDashboard() {
       <div className="flex-1 flex flex-col overflow-hidden bg-[#f3f4f6]">
         {/* Top Header */}
         <div className="px-8 py-5 flex justify-between items-center border-b border-gray-200 bg-white z-10">
-          <h1 className="text-xl text-gray-900">{activeTab === 'reports' ? 'Daily Operations' : 'Assign Cycles to Staff'}</h1>
+          <h1 className="text-xl text-gray-900">
+            {activeTab === 'reports' ? 'Daily Operations' : activeTab === 'assign' ? 'Assign Cycles to Staff' : 'Manage Data'}
+          </h1>
           {activeTab === 'reports' && (
             <div className="flex gap-3">
                <button onClick={generatePDF} className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-gray-900 rounded-full text-sm hover:bg-gray-50 transition shadow-sm">
@@ -359,6 +393,74 @@ export default function AdminDashboard() {
             )}
 
             {/* Notes Settings Card */}
+            {activeTab === 'manage_data' && (
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-gray-900 text-lg mb-6">Manage Shift Data</h3>
+                
+                <h4 className="font-semibold mb-3">Tasks Data</h4>
+                <div className="overflow-x-auto mb-8">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-900">
+                        <th className="py-2 px-3">ID</th>
+                        <th className="py-2 px-3">Type</th>
+                        <th className="py-2 px-3">Staff</th>
+                        <th className="py-2 px-3">Cycle</th>
+                        <th className="py-2 px-3">Time</th>
+                        <th className="py-2 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rawTasks.length === 0 ? (
+                        <tr><td colSpan="6" className="py-4 text-center text-gray-500">No tasks found.</td></tr>
+                      ) : rawTasks.map(t => (
+                        <tr key={t.id} className="border-b border-gray-100">
+                          <td className="py-2 px-3 text-gray-500 text-xs">{t.id}</td>
+                          <td className="py-2 px-3 font-medium">{t.task_type}</td>
+                          <td className="py-2 px-3">{t.staff_name}</td>
+                          <td className="py-2 px-3 font-bold">{t.cycle_id}</td>
+                          <td className="py-2 px-3">{new Date(t.created_at).toLocaleTimeString()}</td>
+                          <td className="py-2 px-3 text-right">
+                            <button onClick={() => handleDeleteRecord('tasks', t.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 bg-red-50 rounded">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <h4 className="font-semibold mb-3">Maintenance Data</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-900">
+                        <th className="py-2 px-3">ID</th>
+                        <th className="py-2 px-3">Staff</th>
+                        <th className="py-2 px-3">Cycle</th>
+                        <th className="py-2 px-3">Fix</th>
+                        <th className="py-2 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rawMaint.length === 0 ? (
+                        <tr><td colSpan="5" className="py-4 text-center text-gray-500">No maintenance records found.</td></tr>
+                      ) : rawMaint.map(m => (
+                        <tr key={m.id} className="border-b border-gray-100">
+                          <td className="py-2 px-3 text-gray-500 text-xs">{m.id}</td>
+                          <td className="py-2 px-3 font-medium">{m.staff_name}</td>
+                          <td className="py-2 px-3 font-bold">{m.cycle_id}</td>
+                          <td className="py-2 px-3 truncate max-w-[200px]">{m.fix_description}</td>
+                          <td className="py-2 px-3 text-right">
+                            <button onClick={() => handleDeleteRecord('maintenance', m.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 bg-red-50 rounded">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'reports' && (
               <>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
@@ -424,7 +526,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 1: Executive Summary */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">1. Executive Operations Summary</h3>
                 {overrides.executive.trim() ? (
                   <p className="text-sm leading-relaxed text-gray-900 whitespace-pre-wrap">{overrides.executive}</p>
@@ -441,7 +543,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 2: Routine Checkup — Summary + Individual detail per staff */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">2. Routine Cycle Checkups</h3>
                 {routineStaff.length === 0 ? (
                   <p className="text-sm text-gray-900">No routine checkups were submitted for this shift.</p>
@@ -486,7 +588,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 3: Pre-Task Check (Cross Check) */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">3. Pre-Task Cross Check</h3>
                 {pretaskStaff.length === 0 ? (
                   <p className="text-sm text-gray-900">No pre-task cross checks were submitted for this shift.</p>
@@ -508,20 +610,20 @@ export default function AdminDashboard() {
                       <p className="text-sm leading-relaxed text-gray-900 mb-2">
                         {staff} submitted {recordLabel(rows.length, 'pre-task record')} for cycle IDs {cycleIds(rows)}. {staffIssueCount === 0 ? 'No issue was recorded in these entries.' : `${recordLabel(staffIssueCount, 'entry')} ${staffIssueCount === 1 ? 'requires' : 'require'} follow-up.`}
                       </p>
-                      <table className="w-full text-xs text-left border-collapse">
+                      <table className="w-full text-sm text-left border-collapse mb-2">
                         <thead>
-                          <tr className="border-b border-gray-300 text-gray-900">
-                            <th className="py-1 px-2 w-16">Cycle</th>
-                            <th className="py-1 px-2 w-20">Condition</th>
-                            <th className="py-1 px-2">Parts Checked / Issue</th>
+                          <tr className="border-b border-gray-900">
+                            <th className="py-2 px-3 font-semibold text-gray-900 w-20">Cycle</th>
+                            <th className="py-2 px-3 font-semibold text-gray-900 w-24">Condition</th>
+                            <th className="py-2 px-3 font-semibold text-gray-900">Parts Checked / Issue</th>
                           </tr>
                         </thead>
                         <tbody>
                           {rows.map((row, i) => (
                             <tr key={i} className="border-b border-gray-100">
-                              <td className="py-1 px-2 font-bold text-gray-900">{row.cycle_id}</td>
-                              <td className="py-1 px-2">{row.condition === 'issue' ? 'Issue' : 'Good'}</td>
-                              <td className="py-1 px-2 text-gray-900">{row.issue || row.parts_checked || '—'}</td>
+                              <td className="py-2 px-3 font-bold text-gray-900">{row.cycle_id}</td>
+                              <td className="py-2 px-3 text-gray-900">{row.condition === 'issue' ? 'Issue' : 'Good'}</td>
+                              <td className="py-2 px-3 text-gray-900">{row.issue || row.parts_checked || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -533,7 +635,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 4: Overall Checkup */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">4. Overall Cycle Checkup</h3>
                 {overallRows.length === 0 ? (
                   <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.overall || `No overall cycle checkup was submitted today. The assigned staff member is ${data.overall.staff}.`}</p>
@@ -547,22 +649,20 @@ export default function AdminDashboard() {
                       </p>
                     )}
                     <p className="text-sm mb-2"><span className="font-medium text-gray-900">Staff:</span> {data.overall.staff} &nbsp;|&nbsp; <span className="font-medium text-gray-900">Total Cycles:</span> {overallRows.length}</p>
-                    <table className="w-full text-xs text-left border-collapse">
+                    <table className="w-full text-sm text-left border-collapse">
                       <thead>
-                        <tr className="border-b border-gray-300 text-gray-900">
-                          <th className="py-1 px-2 w-16">Cycle</th>
-                          <th className="py-1 px-2 w-16">Battery</th>
-                          <th className="py-1 px-2 w-20">Condition</th>
-                          <th className="py-1 px-2">Parts / Issue</th>
+                        <tr className="border-b border-gray-900">
+                          <th className="py-2 px-3 font-semibold text-gray-900 w-20">Cycle</th>
+                          <th className="py-2 px-3 font-semibold text-gray-900 w-24">Battery</th>
+                          <th className="py-2 px-3 font-semibold text-gray-900">Condition</th>
                         </tr>
                       </thead>
                       <tbody>
                         {overallRows.map((row, i) => (
                           <tr key={i} className="border-b border-gray-100">
-                            <td className="py-1 px-2 font-bold text-gray-900">{row.cycle_id}</td>
-                            <td className="py-1 px-2 text-gray-900">{row.battery_id || '—'}</td>
-                            <td className="py-1 px-2">{row.condition === 'issue' ? 'Issue' : 'Good'}</td>
-                            <td className="py-1 px-2 text-gray-900">{row.issue || row.parts_checked || '—'}</td>
+                            <td className="py-2 px-3 font-bold text-gray-900">{row.cycle_id}</td>
+                            <td className="py-2 px-3 text-gray-900">{row.battery_id || '—'}</td>
+                            <td className="py-2 px-3 text-gray-900">{row.condition === 'issue' ? 'Issue' : 'Good'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -572,7 +672,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 5: Station Visit */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">5. Station Visit</h3>
                 {stationRows.length === 0 ? (
                   <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.station || `No station visit was submitted today. The assigned staff member is ${data.station.staff}.`}</p>
@@ -592,7 +692,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 6: Individual Staff Work */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">6. Individual Staff Work Summary</h3>
                 {overrides.individual.trim() ? (
                   <p className="text-sm leading-relaxed text-gray-900 whitespace-pre-wrap">{overrides.individual}</p>
@@ -612,7 +712,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 7: Rider Instructions */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">7. Rider Data Collection Instructions</h3>
                 {overrides.rider.trim() ? (
                   <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-900 p-4 ">{overrides.rider}</div>
@@ -622,7 +722,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 8: Mechanical Repair */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">8. Mechanical Repair Work</h3>
                 {overrides.mechanical.trim() ? (
                   <p className="text-sm leading-relaxed text-gray-900 mb-4 whitespace-pre-wrap">{overrides.mechanical}</p>
@@ -658,7 +758,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 9: Extra Remarks */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">9. Extra Work &amp; Remarks</h3>
                 {overrides.extra.trim() ? (
                   <p className="text-sm leading-relaxed whitespace-pre-wrap text-gray-900 p-4 ">{overrides.extra}</p>
@@ -668,7 +768,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* Section 10: Closing Summary */}
-              <div className="mb-8">
+              <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">10. Operational Closing Summary</h3>
                 <p className="text-sm leading-relaxed text-gray-900">
                   The submitted records account for {recordLabel(routineTotal + pretaskTotal + overallRows.length + stationRows.length, 'operational cycle entry')} and {recordLabel(maintenance.length, 'maintenance activity')} during this shift. Any entries marked with issues should be reviewed by the responsible operations or maintenance team before the affected cycles return to regular service.
