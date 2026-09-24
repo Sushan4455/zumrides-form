@@ -234,10 +234,15 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           out_percentage: c.outPercentage || null,
           out_time: outTimeStr
       }];
+      const url = 'https://script.google.com/macros/s/AKfycbydh5t8duV6t8MItonvFJ2nxYtSjyE-PApwKdf-PTaB52NNgtymi-7S4kNf29ao22oF/exec';
+      const payload = { batterySwaps: batterySwapsToInsert };
       
-      const { error } = await supabase.from('battery_swaps').insert(batterySwapsToInsert);
-      if (error) throw error;
-      
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
       setSaveMsg('✅ Battery Swap Saved!');
       setTimeout(() => {
         setCycles([{ id: Date.now(), cycleId: c.cycleId, batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
@@ -365,7 +370,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
       // Step 3: Send to Google Sheets silently in background (fire and forget)
       const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
-      const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdjdLFGkiE683shjT3auwewzvEvmLBUmhp6VRydHQj_6oRF6bsocTG_UDT_fLALR7rDw/exec';
+      const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydh5t8duV6t8MItonvFJ2nxYtSjyE-PApwKdf-PTaB52NNgtymi-7S4kNf29ao22oF/exec';
       
       const targetUrl = taskType === 'maintenance' ? MAINTENANCE_SCRIPT_URL : SCRIPT_URL;
       const formData = new FormData();
