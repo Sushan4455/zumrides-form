@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Check, AlertCircle } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow } from '../utils';
 
@@ -18,7 +18,7 @@ const PARTS_LIST = [
   { name: 'Data Check', color: '#8b5cf6' }
 ];
 
-const SwapTimer = ({ startTime, isFinished }) => {
+const SwapTimer = ({ startTime, isFinished, onReadyStateChange }) => {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -29,11 +29,17 @@ const SwapTimer = ({ startTime, isFinished }) => {
     return () => clearInterval(interval);
   }, [startTime, isFinished]);
 
-  if (!startTime) return null;
-
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
   const isReady = mins >= 20;
+
+  useEffect(() => {
+    if (onReadyStateChange) {
+      onReadyStateChange(isReady);
+    }
+  }, [isReady, onReadyStateChange]);
+
+  if (!startTime) return null;
 
   return (
     <div className={`text-center font-bold text-lg mt-3 ${isFinished ? 'text-gray-400' : isReady ? 'text-green-600' : 'text-orange-500'}`}>
@@ -47,6 +53,7 @@ const SwapTimer = ({ startTime, isFinished }) => {
 export default function TaskForm({ taskType, staffName, onBack }) {
   const [cycles, setCycles] = useState([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSwapReady, setIsSwapReady] = useState(false);
   
   // For Pre-Task
   const [eligibleCycles, setEligibleCycles] = useState([]);
@@ -68,6 +75,8 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
     if (taskType === 'battery_swap') {
       setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
+    } else if (taskType === 'home_cycle') {
+      setCycles([{ id: Date.now(), manualName: '', homeCycleId: '', batteryId: '', homeTime: '', inVoltage: '', inPercentage: '', outVoltage: '', outPercentage: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     } else {
       setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     }
@@ -268,6 +277,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     if (taskType === 'station') { niceTaskName = 'Station Visit'; stationName = 'Lazimpat'; }
     if (taskType === 'overall') { niceTaskName = 'Overall Checkup'; stationName = 'Dillibazar'; }
     if (taskType === 'maintenance') niceTaskName = 'Maintenance';
+    if (taskType === 'home_cycle') niceTaskName = 'Home Cycle';
 
     // Pre-process cycles to auto-flag missing parts as issues
     const processedCycles = cycles.map(c => {
@@ -283,6 +293,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     const tasksToInsert = [];
     const maintToInsert = [];
     const batterySwapsToInsert = [];
+    const homeCyclesToInsert = [];
 
     processedCycles.forEach(c => {
       if (taskType === 'battery_swap') {
@@ -299,6 +310,11 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             out_time: c.outTime
           });
         }
+      } else if (taskType === 'home_cycle') {
+        homeCyclesToInsert.push({
+          manual_name: staffName,
+          home_cycle_id: c.homeCycleId || ''
+        });
       } else if (taskType === 'maintenance') {
         if (c.cycleId && c.fixDescription) {
           maintToInsert.push({
@@ -324,7 +340,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       }
     });
 
-    if (tasksToInsert.length === 0 && maintToInsert.length === 0 && batterySwapsToInsert.length === 0) {
+    if (tasksToInsert.length === 0 && maintToInsert.length === 0 && batterySwapsToInsert.length === 0 && homeCyclesToInsert.length === 0) {
       setSaveError('Please fill out the required fields!');
       setIsSubmitting(false);
       return;
@@ -348,19 +364,41 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     })).filter(r => r.cycleId);
 
     try {
-      // Step 1: Save to Supabase (awaited — must succeed)
-      if (tasksToInsert.length > 0) {
-        const { error } = await supabase.from('tasks').insert(tasksToInsert);
-        if (error) throw error;
-      }
-      if (maintToInsert.length > 0) {
-        const { error } = await supabase.from('maintenance').insert(maintToInsert);
-        if (error) throw error;
-      }
-      if (batterySwapsToInsert.length > 0) {
-        const { error } = await supabase.from('battery_swaps').insert(batterySwapsToInsert);
-        if (error) throw error;
-      }
+      // Step 1: Save to Supabase (Best effort, fire and forget)
+      const saveToSupabase = async () => {
+        try {
+          if (tasksToInsert.length > 0) {
+            const { error } = await supabase.from('tasks').insert(tasksToInsert);
+            if (error) console.error('Supabase tasks err:', error);
+          }
+          if (maintToInsert.length > 0) {
+            const { error } = await supabase.from('maintenance').insert(maintToInsert);
+            if (error) console.error('Supabase maint err:', error);
+          }
+          if (batterySwapsToInsert.length > 0) {
+            const { error } = await supabase.from('battery_swaps').insert(batterySwapsToInsert);
+            if (error) console.error('Supabase swaps err:', error);
+          }
+          if (homeCyclesToInsert.length > 0) {
+            const { error } = await supabase.from('home_cycles').insert(homeCyclesToInsert);
+            if (error) console.error('Supabase home_cycles err:', error);
+          }
+        } catch (sbErr) {
+          console.error('Supabase exception:', sbErr);
+        }
+
+        if (homeCyclesToInsert.length > 0) {
+          const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydh5t8duV6t8MItonvFJ2nxYtSjyE-PApwKdf-PTaB52NNgtymi-7S4kNf29ao22oF/exec';
+          fetch(MAINTENANCE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ homeCycles: homeCyclesToInsert })
+          }).catch(() => {});
+        }
+      };
+
+      saveToSupabase(); // Do not await, let it run in background
 
       // Step 2: Show success immediately — don't wait for Sheets
       setSaveMsg('✅ Saved successfully!');
@@ -508,6 +546,13 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                 </select>
               </div>
             </>
+          ) : taskType === 'home_cycle' ? (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-500 mb-1">Home Cycle ID</label>
+                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 249" value={cycle.homeCycleId || ''} onChange={e => updateCycle(cycle.id, 'homeCycleId', e.target.value)} />
+              </div>
+            </>
           ) : taskType === 'battery_swap' ? (
             <>
               <div className="mb-4">
@@ -518,27 +563,27 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                 <label className="block text-sm text-gray-500 mb-1">Battery ID</label>
                 <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
               </div>
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">IN Voltage</label>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Voltage</label>
                   <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 52.5" value={cycle.inVoltage || ''} onChange={e => updateCycle(cycle.id, 'inVoltage', e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">IN Percentage</label>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Percentage</label>
                   <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 20" value={cycle.inPercentage || ''} onChange={e => updateCycle(cycle.id, 'inPercentage', e.target.value)} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">OUT Voltage</label>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Voltage</label>
                   <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 58.2" value={cycle.outVoltage || ''} onChange={e => updateCycle(cycle.id, 'outVoltage', e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">OUT Percentage</label>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Percentage</label>
                   <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 100" value={cycle.outPercentage || ''} onChange={e => updateCycle(cycle.id, 'outPercentage', e.target.value)} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm text-gray-500 mb-1">IN Time</label>
                   <button type="button" onClick={() => {
@@ -549,13 +594,13 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                   </button>
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">OUT Time (Saves automatically)</label>
-                  <button type="button" disabled={isSubmitting} onClick={() => handleRecordOutAndSave(cycle.id)} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.outTime ? 'bg-gray-100 text-gray-900' : 'bg-green-50 text-green-600 hover:bg-green-100'} disabled:opacity-50`}>
+                  <label className="block text-sm text-gray-500 mb-1">OUT Time (Auto-saves)</label>
+                  <button type="button" disabled={isSubmitting || (cycle.inTimestamp && !isSwapReady)} onClick={() => handleRecordOutAndSave(cycle.id)} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.outTime ? 'bg-gray-100 text-gray-900' : 'bg-green-50 text-green-600 hover:bg-green-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
                     {cycle.outTime || (isSubmitting ? 'Saving...' : 'Record OUT & Save')}
                   </button>
                 </div>
               </div>
-              <SwapTimer startTime={cycle.inTimestamp} isFinished={!!cycle.outTime} />
+              <SwapTimer startTime={cycle.inTimestamp} isFinished={!!cycle.outTime} onReadyStateChange={setIsSwapReady} />
             </>
           ) : (
             <>
@@ -615,7 +660,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         </div>
       ))}
 
-      {taskType !== 'maintenance' && taskType !== 'battery_swap' && (
+      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_cycle' && (
         <button type="button" onClick={addCycle} className="w-full py-2 mb-6 bg-transparent border-none text-gray-500  text-sm flex items-center justify-center gap-1 hover:text-black transition">
           <Plus size={16} /> Add Another Cycle
         </button>
@@ -644,13 +689,19 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       </div>
 
       {saveMsg && (
-        <div className="mt-4 p-4 bg-green-50 border border-green-300 rounded-xl text-green-800 font-semibold text-center text-sm">
-          {saveMsg}
+        <div className="mt-5 flex justify-center">
+          <span className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-full text-sm font-medium shadow-sm">
+            <Check size={16} className="text-green-400" />
+            {saveMsg.replace('✅ ', '')}
+          </span>
         </div>
       )}
       {saveError && (
-        <div className="mt-4 p-4 bg-red-50 border border-red-300 rounded-xl text-red-800 font-semibold text-center text-sm">
-          {saveError}
+        <div className="mt-5 flex justify-center">
+          <span className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-700 rounded-full text-sm font-medium border border-red-200">
+            <AlertCircle size={16} />
+            {saveError}
+          </span>
         </div>
       )}
     </form>

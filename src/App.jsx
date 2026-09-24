@@ -53,7 +53,7 @@ function App() {
       return <AdminDashboard />;
   }
 
-  if (selectedTask && staffName) {
+  if (selectedTask && (staffName || selectedTask === 'home_cycle')) {
     return (
       <main className="min-h-[100dvh] bg-gray-50 px-4 py-8 sm:px-6 sm:py-12 flex justify-center">
         <div className="w-full max-w-md bg-transparent py-2 sm:py-4">
@@ -71,47 +71,68 @@ function App() {
 
           <div>
             <label className="block text-sm font-medium text-gray-500 mb-2">Your Name</label>
-            <select 
+            <input 
+              type="text"
+              list="staff-names"
+              placeholder="Select or type your name..."
               value={staffName} 
               onChange={(e) => { setStaffName(e.target.value); setNameError(false); }} 
-              className={`w-full rounded-xl bg-gray-100 px-4 py-4 text-base font-medium text-gray-900 outline-none appearance-none focus:ring-2 focus:ring-black ${nameError ? 'border border-red-500' : 'border-none'}`}
-            >
-              <option value="" disabled>Enter your name...</option>
-              <option value="Kabir">Kabir</option>
-              <option value="Laxman">Laxman</option>
-              <option value="Anish">Anish</option>
-              <option value="Surya">Surya</option>
-              <option value="Ram">Ram</option>
-              <option value="Kiran">Kiran</option>
-              <option value="Dipesh">Dipesh</option>
-              <option value="Sandesh">Sandesh</option>
-            </select>
-            {nameError && <p className="text-red-500 text-sm mt-2 font-medium">Please select your name first!</p>}
+              className={`w-full rounded-xl bg-gray-100 px-4 py-4 text-base font-medium text-gray-900 outline-none focus:ring-2 focus:ring-black ${nameError ? 'border border-red-500' : 'border-none'}`}
+            />
+            <datalist id="staff-names">
+              <option value="Kabir" />
+              <option value="Laxman" />
+              <option value="Anish" />
+              <option value="Surya" />
+              <option value="Ram" />
+              <option value="Kiran" />
+              <option value="Dipesh" />
+              <option value="Sandesh" />
+            </datalist>
+            {nameError && <p className="text-red-500 text-sm mt-2 font-medium">Please select or type your name first!</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('routine'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
-              <ClipboardList size={24} /> <span>Routine</span>
-            </button>
-            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('pretask'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
-              <ClipboardList size={24} /> <span>Pre-Task</span>
-            </button>
-            <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('overall', dailyAssignments.overall)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
-              <ClipboardList size={24} /> <span>Overall</span>
-              <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.overall} today` : 'No Saturday assignment'}</span>
-            </button>
-            <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('station', dailyAssignments.station)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
-              <ClipboardList size={24} /> <span>Station</span>
-              <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.station} today` : 'No Saturday assignment'}</span>
-            </button>
+          <div className="space-y-6">
             
-            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_swap'); }} className="col-span-2 mt-1 min-h-12 rounded-full bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.99] flex items-center justify-center gap-2 sm:mt-2 sm:min-h-14">
-              <ClipboardList size={20} /> <span>Battery Swap</span>
-            </button>
+            {/* Section 1: Tasks */}
+            <div className="space-y-3">
+              <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-1">Inspections & Checkups</h2>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('routine'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
+                  <ClipboardList size={24} /> <span>Routine</span>
+                </button>
+                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('pretask'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
+                  <ClipboardList size={24} /> <span>Pre-Task</span>
+                </button>
+                <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('overall', dailyAssignments.overall)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
+                  <ClipboardList size={24} /> <span>Overall</span>
+                  <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.overall} today` : 'No Saturday assignment'}</span>
+                </button>
+                <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('station', dailyAssignments.station)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
+                  <ClipboardList size={24} /> <span>Station</span>
+                  <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.station} today` : 'No Saturday assignment'}</span>
+                </button>
+              </div>
+            </div>
 
-            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('maintenance'); }} className="col-span-2 mt-1 min-h-12 rounded-full bg-gray-900 px-5 py-3.5 text-white border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2 sm:mt-2 sm:min-h-14">
-              <Wrench size={20} /> <span>Maintenance</span>
-            </button>
+            {/* Section 2: Operations */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                  <ClipboardList size={22} /> <span className="text-sm">Battery Swap</span>
+                </button>
+                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_cycle'); }} className="min-h-16 rounded-2xl bg-indigo-50 text-indigo-700 font-semibold border-none transition hover:bg-indigo-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                  <ClipboardList size={22} /> <span className="text-sm">Home Cycle</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Section 3: Maintenance */}
+            <div className="pt-2">
+              <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('maintenance'); }} className="w-full min-h-14 rounded-2xl bg-gray-900 px-5 py-4 text-white font-semibold border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2">
+                <Wrench size={20} /> <span>Maintenance</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
