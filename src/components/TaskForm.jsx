@@ -58,14 +58,15 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   const [knownIssueAlert, setKnownIssueAlert] = useState('');
 
   useEffect(() => {
+    const saved = localStorage.getItem(`zum_draft_${taskType}`);
+    if (saved) {
+      try {
+        setCycles(JSON.parse(saved));
+        return;
+      } catch(e) {}
+    }
+
     if (taskType === 'battery_swap') {
-      const saved = localStorage.getItem('zum_battery_swap_draft');
-      if (saved) {
-        try {
-          setCycles(JSON.parse(saved));
-          return;
-        } catch(e) {}
-      }
       setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     } else {
       setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
@@ -73,9 +74,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   }, [taskType]);
 
   useEffect(() => {
-    if (taskType === 'battery_swap') {
-      localStorage.setItem('zum_battery_swap_draft', JSON.stringify(cycles));
-    }
+    localStorage.setItem(`zum_draft_${taskType}`, JSON.stringify(cycles));
   }, [cycles, taskType]);
 
   useEffect(() => {

@@ -6,10 +6,20 @@ import { getDailyAssignments } from "./utils";
 import { supabase } from "./supabaseClient";
 
 function App() {
-  const [selectedTask, setSelectedTask] = useState(null);
-  const [staffName, setStaffName] = useState('');
+  const [selectedTask, setSelectedTask] = useState(() => localStorage.getItem('zum_selectedTask') || null);
+  const [staffName, setStaffName] = useState(() => localStorage.getItem('zum_staffName') || '');
   const [nameError, setNameError] = useState(false);
   const [postponements, setPostponements] = useState({ station: [], overall: [] });
+
+  useEffect(() => {
+    if (selectedTask) localStorage.setItem('zum_selectedTask', selectedTask);
+    else localStorage.removeItem('zum_selectedTask');
+  }, [selectedTask]);
+
+  useEffect(() => {
+    if (staffName) localStorage.setItem('zum_staffName', staffName);
+  }, [staffName]);
+
 
   useEffect(() => {
     // Only fetch for non-admin to avoid double fetching since AdminDashboard handles itself
