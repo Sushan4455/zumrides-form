@@ -19,7 +19,7 @@ const PARTS_LIST = [
 ];
 
 export default function TaskForm({ taskType, staffName, onBack }) {
-  const [cycles, setCycles] = useState([{ id: Date.now(), cycleId: '', batteryId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Fixed (Ready to Deploy)' }]);
+  const [cycles, setCycles] = useState([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // For Pre-Task
@@ -98,7 +98,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   }, [taskType, staffName]);
 
   const addCycle = () => {
-    setCycles([...cycles, { id: Date.now(), cycleId: '', batteryId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Fixed (Ready to Deploy)' }]);
+    setCycles([...cycles, { id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
   };
 
   const removeCycle = (id) => {
@@ -167,17 +167,28 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     if (taskType === 'overall') { niceTaskName = 'Overall Checkup'; stationName = 'Dillibazar'; }
     if (taskType === 'maintenance') niceTaskName = 'Maintenance';
 
+    // Pre-process cycles to auto-flag missing parts as issues
+    const processedCycles = cycles.map(c => {
+      if (taskType !== 'maintenance' && c.condition === 'good') {
+        const unchecked = PARTS_LIST.filter(p => !c.partsChecked.includes(p.name)).map(p => p.name);
+        if (unchecked.length > 0) {
+          return { ...c, condition: 'issue', issue: `Unchecked Parts: ${unchecked.join(', ')}` };
+        }
+      }
+      return c;
+    });
+
     const tasksToInsert = [];
     const maintToInsert = [];
 
-    cycles.forEach(c => {
+    processedCycles.forEach(c => {
       if (taskType === 'maintenance') {
         if (c.cycleId && c.fixDescription) {
           maintToInsert.push({
             cycle_id: c.cycleId.trim(),
             fix_description: c.fixDescription.trim(),
             staff_name: staffName,
-            status: c.status || 'Fixed (Ready to Deploy)'
+            status: c.status || 'Repaired'
           });
         }
       } else {
@@ -187,7 +198,6 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             task_type: niceTaskName,
             station_name: stationName,
             cycle_id: c.cycleId.trim(),
-            battery_id: c.batteryId ? c.batteryId.trim() : '',
             condition: c.condition,
             issue: (c.condition === 'issue' ? c.issue : ''),
             parts_checked: c.partsChecked.join(', '),
@@ -205,13 +215,12 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
     // Build Google Sheets-compatible records for backup
     const timestamp = new Date().toLocaleString();
-    const sheetsRecords = cycles.map(c => ({
+    const sheetsRecords = processedCycles.map(c => ({
       timestamp,
       staffName,
       taskType: niceTaskName,
       stationName,
       cycleId: c.cycleId ? c.cycleId.trim() : '',
-      batteryId: c.batteryId ? c.batteryId.trim() : '',
       condition: c.condition || '',
       issue: c.condition === 'issue' ? c.issue : '',
       partsChecked: (c.partsChecked || []).join(', '),
@@ -234,16 +243,40 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
       // Step 2: Show success immediately — don't wait for Sheets
       setSaveMsg('✅ Saved successfully!');
-      setCycles([{ id: Date.now(), cycleId: '', batteryId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Fixed (Ready to Deploy)' }]);
+      setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
       setTimeout(() => onBack(), 1200);
 
       // Step 3: Send to Google Sheets silently in background (fire and forget)
       const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
       const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwdjdLFGkiE683shjT3auwewzvEvmLBUmhp6VRydHQj_6oRF6bsocTG_UDT_fLALR7rDw/exec';
+      
       const targetUrl = taskType === 'maintenance' ? MAINTENANCE_SCRIPT_URL : SCRIPT_URL;
       const formData = new FormData();
-      formData.append('data', JSON.stringify(sheetsRecords));
+      
+      // For maintenance tasks, we need to explicitly set the sheetTarget to 'repaired' to work with the updated Apps Script
+      const payloadRecords = sheetsRecords.map(r => ({
+        ...r,
+        sheetTarget: taskType === 'maintenance' ? 'repaired' : undefined
+      }));
+      formData.append('data', JSON.stringify(payloadRecords));
+      
       fetch(targetUrl, { method: 'POST', mode: 'no-cors', body: formData }).catch(() => {});
+
+      // Step 4: If this was a checkup task and we found broken cycles, ALSO send them to the Issue sheet!
+      if (taskType !== 'maintenance') {
+        const brokenCycles = sheetsRecords.filter(r => r.condition === 'issue').map(r => ({
+          ...r,
+          sheetTarget: 'issues',
+          reportedIssue: r.issue,
+          status: 'Pending'
+        }));
+
+        if (brokenCycles.length > 0) {
+          const issueFormData = new FormData();
+          issueFormData.append('data', JSON.stringify(brokenCycles));
+          fetch(MAINTENANCE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: issueFormData }).catch(() => {});
+        }
+      }
 
     } catch (err) {
       console.error(err);
@@ -258,31 +291,41 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     const allSelected = cycle.partsChecked.length === PARTS_LIST.length;
     return (
       <div className="mb-4">
-        <div className="flex justify-between items-end mb-2">
-          <label className="block text-sm text-gray-700">Parts Checked</label>
+        <div className="flex justify-between items-end mb-3">
+          <label className="block text-sm font-semibold text-gray-700">Parts Checked</label>
           <button 
             type="button" 
             onClick={() => handleSelectAllParts(cycle.id)} 
-            className="text-xs text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-2 py-1 rounded"
+            className="text-xs text-blue-700 hover:text-white hover:bg-blue-600 font-semibold bg-blue-50 border border-blue-200 px-4 py-1.5 rounded-md transition-all shadow-sm active:scale-95"
           >
             {allSelected ? 'Deselect All' : 'Select All'}
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          {PARTS_LIST.map(p => (
-            <label key={p.name} className="flex items-center space-x-2 p-2 bg-gray-50 rounded border border-gray-200 cursor-pointer hover:bg-gray-100">
-              <input 
-                type="checkbox" 
-                className="rounded text-black focus:ring-black"
-                checked={cycle.partsChecked.includes(p.name)}
-                onChange={() => togglePart(cycle.id, p.name)}
-              />
-              <span className="text-sm flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
-                {p.name}
-              </span>
-            </label>
-          ))}
+        <div className="grid grid-cols-2 gap-3">
+          {PARTS_LIST.map(p => {
+            const isChecked = cycle.partsChecked.includes(p.name);
+            return (
+              <label 
+                key={p.name} 
+                className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-all duration-200 border ${
+                  isChecked ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50'
+                }`}
+              >
+                <input 
+                  type="checkbox" 
+                  className="rounded text-gray-900 focus:ring-gray-900 w-4 h-4 cursor-pointer"
+                  checked={isChecked}
+                  onChange={() => togglePart(cycle.id, p.name)}
+                />
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: p.color }}></span>
+                  <span className={`text-sm ${isChecked ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+                    {p.name}
+                  </span>
+                </div>
+              </label>
+            );
+          })}
         </div>
       </div>
     );
@@ -336,7 +379,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               <div className="mb-4">
                 <label className="block text-sm  text-gray-500 mb-1">Status</label>
                 <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.status} onChange={e => updateCycle(cycle.id, 'status', e.target.value)}>
-                  <option value="Fixed (Ready to Deploy)">Fixed (Ready to Deploy)</option>
+                  <option value="Repaired">Repaired</option>
                   <option value="Pending Parts">Pending Parts</option>
                   <option value="In Progress">In Progress</option>
                 </select>
@@ -374,9 +417,10 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               </div>
               
               <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Battery ID (Optional)</label>
-                <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 70" value={cycle.batteryId} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
+                <label className="block text-sm text-gray-500 mb-1">Battery ID (Optional)</label>
+                <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 70" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
               </div>
+
 
               {(taskType === 'overall' || taskType === 'pretask') && renderPartsChecked(cycle)}
 
@@ -405,18 +449,18 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         </button>
       )}
 
-      <div className="flex gap-2 mt-4">
-        <button type="button" onClick={onBack} className="w-1/3 py-4 bg-gray-200 text-gray-800 rounded-xl text-sm hover:bg-gray-300 transition">
+      <div className="flex justify-end gap-3 mt-8 border-t border-gray-100 pt-6">
+        <button type="button" onClick={onBack} className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">
           Back
         </button>
         <button type="button" onClick={() => {
-          setCycles([{ id: Date.now(), cycleId: '', batteryId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Fixed (Ready to Deploy)' }]);
+          setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
           setSaveMsg('');
           setSaveError('');
-        }} className="w-1/3 py-4 bg-red-500 text-white rounded-xl text-sm hover:bg-red-600 transition">
+        }} className="px-5 py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition">
           Clear
         </button>
-        <button type="submit" disabled={isSubmitting} className="w-1/3 py-4 bg-gray-900 text-white rounded-xl text-sm hover:bg-black transition disabled:opacity-50">
+        <button type="submit" disabled={isSubmitting} className="px-8 py-2.5 bg-gray-900 text-white rounded-full text-sm font-medium hover:bg-black transition shadow-sm disabled:opacity-50">
           {isSubmitting ? 'Saving...' : 'Save'}
         </button>
       </div>

@@ -1,14 +1,37 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ClipboardList, Wrench } from "lucide-react";
 import TaskForm from "./components/TaskForm";
 import AdminDashboard from "./components/AdminDashboard";
 import { getDailyAssignments } from "./utils";
+import { supabase } from "./supabaseClient";
 
 function App() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [staffName, setStaffName] = useState('');
   const [nameError, setNameError] = useState(false);
-  const dailyAssignments = getDailyAssignments();
+  const [postponements, setPostponements] = useState({ station: [], overall: [] });
+
+  useEffect(() => {
+    // Only fetch for non-admin to avoid double fetching since AdminDashboard handles itself
+    if (window.location.pathname !== '/admin') {
+      const fetchPostponements = async () => {
+        try {
+          const { data, error } = await supabase.from('schedule_overrides').select('*');
+          if (error && error.code !== '42P01') throw error;
+          if (data) {
+            const st = data.filter(d => d.type === 'station').map(d => d.date_key);
+            const ov = data.filter(d => d.type === 'overall').map(d => d.date_key);
+            setPostponements({ station: st, overall: ov });
+          }
+        } catch (e) {
+          console.log('Error fetching postponements:', e);
+        }
+      };
+      fetchPostponements();
+    }
+  }, []);
+
+  const dailyAssignments = getDailyAssignments(new Date(), postponements);
 
   const openAssignedTask = (taskType, assignedStaff) => {
     if (!assignedStaff) return;

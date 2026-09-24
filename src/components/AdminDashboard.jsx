@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, Database } from 'lucide-react';
+import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, Database, Wand2, Loader2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
+import { refineTextWithAI } from '../utils/ai';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
 
@@ -12,7 +13,10 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
   const [activeTab, setActiveTab] = useState('reports');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  
   const [assignStaff, setAssignStaff] = useState('');
   const [assignCycles, setAssignCycles] = useState('');
   const [assignMsg, setAssignMsg] = useState('');
@@ -31,11 +35,53 @@ export default function AdminDashboard() {
   };
   const [overrides, setOverrides] = useState(DEFAULT_OVERRIDES);
   const [activeEditSection, setActiveEditSection] = useState('executive');
-  const [rawTasks, setRawTasks] = useState([]);
-  const [rawMaint, setRawMaint] = useState([]);
 
-  const reportDateKey = getLocalDateKey();
-  const dailyAssignments = getDailyAssignments();
+  const [globalData, setGlobalData] = useState([]);
+  const [dataSearch, setDataSearch] = useState('');
+  const [dataFilter, setDataFilter] = useState('All');
+  const [isLoadingGlobal, setIsLoadingGlobal] = useState(false);
+  const [postponements, setPostponements] = useState({ station: [], overall: [] });
+
+  useEffect(() => {
+    fetchPostponements();
+  }, []);
+
+  const fetchPostponements = async () => {
+    try {
+      const { data, error } = await supabase.from('schedule_overrides').select('*');
+      if (error && error.code !== '42P01') throw error;
+      if (data) {
+        const st = data.filter(d => d.type === 'station').map(d => d.date_key);
+        const ov = data.filter(d => d.type === 'overall').map(d => d.date_key);
+        setPostponements({ station: st, overall: ov });
+      }
+    } catch (e) {
+      console.log('Error fetching postponements:', e);
+    }
+  };
+
+  const handlePostpone = async (dateStr, type) => {
+    try {
+      const { error } = await supabase.from('schedule_overrides').insert([{ date_key: dateStr, type }]);
+      if (error) throw error;
+      fetchPostponements();
+    } catch (e) {
+      alert("Failed to postpone: " + e.message);
+    }
+  };
+
+  const handleUndoPostpone = async (dateStr, type) => {
+    try {
+      const { error } = await supabase.from('schedule_overrides').delete().match({ date_key: dateStr, type });
+      if (error) throw error;
+      fetchPostponements();
+    } catch (e) {
+      alert("Failed to undo postpone: " + e.message);
+    }
+  };
+
+  const reportDateKey = getLocalDateKey(selectedDate);
+  const dailyAssignments = getDailyAssignments(selectedDate, postponements);
   const overridesKey = `zum_report_overrides_${reportDateKey}`;
 
   const handleAssign = async (e) => {
@@ -76,7 +122,10 @@ export default function AdminDashboard() {
         setOverrides(JSON.parse(savedOverrides));
       } catch (e) {
         console.error("Error parsing overrides:", e);
+        setOverrides(DEFAULT_OVERRIDES);
       }
+    } else {
+      setOverrides(DEFAULT_OVERRIDES);
     }
   }, [overridesKey]);
 
@@ -95,7 +144,7 @@ export default function AdminDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const { start, end } = getCurrentShiftWindow();
+      const { start, end } = getCurrentShiftWindow(selectedDate);
 
       const { data: tasksDataRaw, error: taskError } = await supabase
         .from('tasks')
@@ -109,7 +158,6 @@ export default function AdminDashboard() {
       // Filter out faulty records that were saved to Supabase but not Google Sheets today
       const badIds = [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
       const tasksData = tasksDataRaw ? tasksDataRaw.filter(t => !badIds.includes(t.id)) : [];
-      setRawTasks(tasksData);
 
       const { data: maintData, error: maintError } = await supabase
         .from('maintenance')
@@ -119,13 +167,12 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: true });
         
       if (maintError) throw maintError;
-      setRawMaint(maintData || []);
 
       const result = {
-        routine: {},    // { staffName: [{ cycle_id, battery_id, condition, issue, parts_checked, odometer }] }
+        routine: {},    // { staffName: [{ cycle_id, condition, issue, parts_checked, odometer }] }
         pretask: {},    // same structure
-        overall: { staff: dailyAssignments.overall || 'No Saturday assignment', cycles: [] },
-        station: { staff: dailyAssignments.station || 'No Saturday assignment', cycles: [] },
+        overall: { staff: dailyAssignments.overall || 'Not assigned today', cycles: [] },
+        station: { staff: dailyAssignments.station || 'Not scheduled today', cycles: [] },
         maintenance: []
       };
 
@@ -161,6 +208,44 @@ export default function AdminDashboard() {
     }
   };
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchDashboardData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, isAuthenticated]);
+
+  useEffect(() => {
+    if (activeTab === 'manage_data' && isAuthenticated) {
+      const fetchGlobal = async () => {
+        setIsLoadingGlobal(true);
+        try {
+          const { data: tasks } = await supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(1000);
+          const { data: maint } = await supabase.from('maintenance').select('*').order('created_at', { ascending: false }).limit(1000);
+          
+          const combined = [
+            ...(tasks || []).map(t => ({ ...t, source: 'tasks' })),
+            ...(maint || []).map(m => ({
+               id: m.id,
+               task_type: 'Maintenance',
+               staff_name: m.staff_name,
+               cycle_id: m.cycle_id,
+               created_at: m.created_at,
+               fix_description: m.fix_description,
+               source: 'maintenance'
+            }))
+          ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          
+          setGlobalData(combined);
+        } catch (err) {
+          console.error(err);
+        }
+        setIsLoadingGlobal(false);
+      };
+      fetchGlobal();
+    }
+  }, [activeTab, isAuthenticated]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -189,15 +274,30 @@ export default function AdminDashboard() {
       if (error) throw error;
       
       alert('Record deleted successfully!');
+      setGlobalData(prev => prev.filter(item => !(item.source === table && item.id === id)));
       await fetchDashboardData(); // Refresh UI and PDF data automatically
     } catch (err) {
       alert('Error deleting record: ' + err.message + '\nMake sure you ran the SQL script to allow deletes!');
     }
   };
 
+  const handleRefine = async () => {
+    const currentText = overrides[activeEditSection];
+    if (!currentText || !currentText.trim()) return;
+    
+    setIsRefining(true);
+    try {
+      const refinedText = await refineTextWithAI(currentText);
+      setOverrides(prev => ({ ...prev, [activeEditSection]: refinedText }));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
   const generatePDF = () => {
-    const today = new Date();
-    const dateStr = today.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+    const dateStr = selectedDate.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
     const originalTitle = document.title;
     document.title = `Daily_Operations_Report_${dateStr}`;
     window.print();
@@ -236,6 +336,24 @@ export default function AdminDashboard() {
 
   // Helper: get cycle IDs array from full row objects
   const cycleIds = (rows) => rows.map(r => r.cycle_id || r).join(', ');
+  
+  const renderCycleGroup = (rows) => {
+    const good = rows.filter(r => r.condition !== 'issue').map(r => r.cycle_id);
+    const issues = rows.filter(r => r.condition === 'issue').map(r => {
+      const parts = r.issue || r.parts_checked;
+      return parts ? `${r.cycle_id} (${parts})` : r.cycle_id;
+    });
+    
+    if (issues.length === 0) return <>{good.join(', ')}</>;
+    if (good.length === 0) return <><span className="font-semibold text-gray-900">Issue:</span> {issues.join(', ')}</>;
+    
+    return (
+      <div className="flex flex-col gap-1">
+        <div><span className="font-semibold text-gray-900">Good:</span> {good.join(', ')}</div>
+        <div><span className="font-semibold text-gray-900">Issue:</span> {issues.join(', ')}</div>
+      </div>
+    );
+  };
   const recordLabel = (count, singular) => {
     if (count === 1) return `${count} ${singular}`;
     const plural = singular.endsWith('activity') || singular.endsWith('entry')
@@ -287,6 +405,24 @@ export default function AdminDashboard() {
     mechanical: "8. Mechanical Repair Work",
     extra: "9. Extra Work & Remarks"
   };
+
+  const getUpcomingSchedule = () => {
+    const schedule = [];
+    const today = new Date();
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const assignments = getDailyAssignments(d, postponements);
+      schedule.push({
+        dateKey: getLocalDateKey(d),
+        dateString: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+        overall: assignments.overall,
+        station: assignments.station
+      });
+    }
+    return schedule;
+  };
+  const upcomingSchedule = getUpcomingSchedule();
 
   return (
     <div className="flex h-screen w-full bg-[#f3f4f6] font-sans text-gray-800 overflow-hidden">
@@ -340,7 +476,21 @@ export default function AdminDashboard() {
             {activeTab === 'reports' ? 'Daily Operations' : activeTab === 'assign' ? 'Assign Cycles to Staff' : 'Manage Data'}
           </h1>
           {activeTab === 'reports' && (
-            <div className="flex gap-3">
+            <div className="flex gap-3 items-center">
+               <div className="flex items-center bg-gray-50 border border-gray-200 rounded-full px-4 py-2 gap-2 shadow-sm">
+                 <Calendar size={16} className="text-gray-500" />
+                 <input 
+                   type="date"
+                   value={getLocalDateKey(selectedDate)}
+                   onChange={(e) => {
+                     if (e.target.value) {
+                       const [y, m, d] = e.target.value.split('-');
+                       setSelectedDate(new Date(y, m - 1, d));
+                     }
+                   }}
+                   className="bg-transparent border-none text-gray-900 text-sm outline-none cursor-pointer"
+                 />
+               </div>
                <button onClick={generatePDF} className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-gray-900 rounded-full text-sm hover:bg-gray-50 transition shadow-sm">
                   <FileText size={16} /> Export PDF
                </button>
@@ -350,111 +500,187 @@ export default function AdminDashboard() {
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8">
-          <div className="max-w-5xl mx-auto flex flex-col gap-6">
+          <div className={`${activeTab === 'manage_data' ? 'w-full' : 'max-w-5xl mx-auto'} flex flex-col gap-6`}>
 
             {/* Assignments Card */}
             {activeTab === 'assign' && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <h3 className="text-gray-900 text-lg mb-6">Assign Cycles to Staff</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                    <label className="block text-sm text-gray-500 mb-2">Staff Member</label>
-                    <select 
-                      value={assignStaff} 
-                      onChange={e => setAssignStaff(e.target.value)}
-                      className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none text-sm bg-gray-50"
-                    >
-                       <option value="">Select Staff Member...</option>
-                       <option value="Kabir">Kabir</option>
-                       <option value="Laxman">Laxman</option>
-                       <option value="Anish">Anish</option>
-                       <option value="Surya">Surya</option>
-                       <option value="Dipesh">Dipesh</option>
-                    </select>
+              <div className="flex flex-col gap-6">
+                <div className="">
+                  <h3 className="text-gray-900 text-lg mb-6">Assign Cycles to Staff</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label className="block text-sm text-gray-500 mb-2">Staff Member</label>
+                        <select 
+                          value={assignStaff} 
+                          onChange={e => setAssignStaff(e.target.value)}
+                          className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none text-sm bg-gray-50"
+                        >
+                           <option value="">Select Staff Member...</option>
+                           <option value="Kabir">Kabir</option>
+                           <option value="Laxman">Laxman</option>
+                           <option value="Anish">Anish</option>
+                           <option value="Surya">Surya</option>
+                           <option value="Dipesh">Dipesh</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm text-gray-500 mb-2">Cycle IDs</label>
+                        <input 
+                          type="text"
+                          placeholder="e.g. 101, 55, 89"
+                          value={assignCycles}
+                          onChange={e => setAssignCycles(e.target.value)}
+                          className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 text-sm bg-gray-50"
+                        />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button disabled={assigning} onClick={handleAssign} className="px-6 py-2.5 bg-gray-900 text-white rounded-full shadow-sm hover:bg-black transition text-sm disabled:opacity-50">
+                      {assigning ? 'Assigning...' : 'Send Assignments'}
+                    </button>
+                    {assignMsg && <span className="text-sm text-green-600">{assignMsg}</span>}
+                  </div>
                 </div>
-                <div>
-                    <label className="block text-sm text-gray-500 mb-2">Cycle IDs</label>
-                    <input 
-                      type="text"
-                      placeholder="e.g. 101, 55, 89"
-                      value={assignCycles}
-                      onChange={e => setAssignCycles(e.target.value)}
-                      className="w-full p-3 rounded-xl border-none outline-none focus:ring-2 focus:ring-black text-gray-900 text-sm bg-gray-50"
-                    />
+
+                {/* 2-Week Schedule UI */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                  <h3 className="text-gray-900 text-lg font-medium mb-4">Upcoming Schedule (Next 14 Days)</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wider">
+                          <th className="py-3 px-4 font-medium">Date</th>
+                          <th className="py-3 px-4 font-medium">Overall Visit</th>
+                          <th className="py-3 px-4 font-medium">Station Visit</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-sm">
+                        {upcomingSchedule.map((day, idx) => (
+                          <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                            <td className="py-3 px-4 font-medium text-gray-900">
+                              {day.dateString}
+                              {idx === 0 && <span className="ml-3 px-2.5 py-1 bg-black text-white rounded-full text-[10px] uppercase font-bold tracking-wider">Today</span>}
+                              {idx === 1 && <span className="ml-3 px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] uppercase font-bold tracking-wider">Tomorrow</span>}
+                            </td>
+                            <td className="py-3 px-4 text-gray-700">
+                              {day.overall ? (
+                                <div className="flex items-center gap-3">
+                                  <span className="font-medium text-gray-900">{day.overall}</span>
+                                  {idx === 0 && <button onClick={() => handlePostpone(day.dateKey, 'overall')} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100 font-medium transition">Postpone</button>}
+                                </div>
+                              ) : postponements.overall.includes(day.dateKey) ? (
+                                <div className="flex items-center gap-3">
+                                  <span className="text-red-500 font-medium text-sm">Postponed</span>
+                                  <button onClick={() => handleUndoPostpone(day.dateKey, 'overall')} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs hover:bg-gray-200 font-medium transition">Undo</button>
+                                </div>
+                              ) : <span className="text-gray-400 italic">None</span>}
+                            </td>
+                            <td className="py-3 px-4 text-gray-700">
+                              {day.station ? (
+                                <div className="flex items-center gap-3">
+                                  <span className="font-medium text-gray-900">{day.station}</span>
+                                  {idx === 0 && <button onClick={() => handlePostpone(day.dateKey, 'station')} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100 font-medium transition">Postpone</button>}
+                                </div>
+                              ) : postponements.station.includes(day.dateKey) ? (
+                                <div className="flex items-center gap-3">
+                                  <span className="text-red-500 font-medium text-sm">Postponed</span>
+                                  <button onClick={() => handleUndoPostpone(day.dateKey, 'station')} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs hover:bg-gray-200 font-medium transition">Undo</button>
+                                </div>
+                              ) : <span className="text-gray-400 italic">None</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <button disabled={assigning} onClick={handleAssign} className="px-6 py-2.5 bg-gray-900 text-white rounded-full shadow-sm hover:bg-black transition text-sm disabled:opacity-50">
-                  {assigning ? 'Assigning...' : 'Send Assignments'}
-                </button>
-                {assignMsg && <span className="text-sm text-green-600">{assignMsg}</span>}
-              </div>
-            </div>
             )}
 
-            {/* Notes Settings Card */}
+            {/* Master Database UI */}
             {activeTab === 'manage_data' && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h3 className="text-gray-900 text-lg mb-6">Manage Shift Data</h3>
-                
-                <h4 className="font-semibold mb-3">Tasks Data</h4>
-                <div className="overflow-x-auto mb-8">
-                  <table className="w-full text-sm text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-gray-900">
-                        <th className="py-2 px-3">ID</th>
-                        <th className="py-2 px-3">Type</th>
-                        <th className="py-2 px-3">Staff</th>
-                        <th className="py-2 px-3">Cycle</th>
-                        <th className="py-2 px-3">Time</th>
-                        <th className="py-2 px-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rawTasks.length === 0 ? (
-                        <tr><td colSpan="6" className="py-4 text-center text-gray-500">No tasks found.</td></tr>
-                      ) : rawTasks.map(t => (
-                        <tr key={t.id} className="border-b border-gray-100">
-                          <td className="py-2 px-3 text-gray-500 text-xs">{t.id}</td>
-                          <td className="py-2 px-3 font-medium">{t.task_type}</td>
-                          <td className="py-2 px-3">{t.staff_name}</td>
-                          <td className="py-2 px-3 font-bold">{t.cycle_id}</td>
-                          <td className="py-2 px-3">{new Date(t.created_at).toLocaleTimeString()}</td>
-                          <td className="py-2 px-3 text-right">
-                            <button onClick={() => handleDeleteRecord('tasks', t.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 bg-red-50 rounded">Delete</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="w-full">
+                {/* Header Section */}
+                <div className="flex flex-col gap-6 mb-8">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-gray-900 text-xl font-bold">Master Data Archive</h3>
+                    <div className="relative">
+                      <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input 
+                        type="text"
+                        placeholder="Search cycle, staff..."
+                        value={dataSearch}
+                        onChange={e => setDataSearch(e.target.value)}
+                        className="pl-11 pr-4 py-2 bg-white border-none outline-none focus:ring-2 focus:ring-black text-sm rounded-full w-64 text-gray-900 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Pills */}
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                    {['All', 'Routine Checkup', 'Pre-task Cross-check', 'Overall Checkup', 'Station Visit', 'Maintenance'].map(filter => (
+                      <button 
+                        key={filter}
+                        onClick={() => setDataFilter(filter)}
+                        className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${dataFilter === filter ? 'bg-[#0f172a] text-white border-transparent' : 'bg-transparent text-gray-600 border-gray-200 hover:border-gray-300'}`}
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <h4 className="font-semibold mb-3">Maintenance Data</h4>
+                {/* Table Section */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left border-collapse">
+                  <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-gray-900">
-                        <th className="py-2 px-3">ID</th>
-                        <th className="py-2 px-3">Staff</th>
-                        <th className="py-2 px-3">Cycle</th>
-                        <th className="py-2 px-3">Fix</th>
-                        <th className="py-2 px-3 text-right">Actions</th>
+                      <tr className="text-[10px] text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                        <th className="py-4 px-2 font-semibold">Cycle</th>
+                        <th className="py-4 px-2 font-semibold">Type</th>
+                        <th className="py-4 px-2 font-semibold">Staff</th>
+                        <th className="py-4 px-2 font-semibold">Date & Time</th>
+                        <th className="py-4 px-2 font-semibold text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {rawMaint.length === 0 ? (
-                        <tr><td colSpan="5" className="py-4 text-center text-gray-500">No maintenance records found.</td></tr>
-                      ) : rawMaint.map(m => (
-                        <tr key={m.id} className="border-b border-gray-100">
-                          <td className="py-2 px-3 text-gray-500 text-xs">{m.id}</td>
-                          <td className="py-2 px-3 font-medium">{m.staff_name}</td>
-                          <td className="py-2 px-3 font-bold">{m.cycle_id}</td>
-                          <td className="py-2 px-3 truncate max-w-[200px]">{m.fix_description}</td>
-                          <td className="py-2 px-3 text-right">
-                            <button onClick={() => handleDeleteRecord('maintenance', m.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 bg-red-50 rounded">Delete</button>
-                          </td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-gray-50 text-sm">
+                      {isLoadingGlobal ? (
+                        <tr><td colSpan="5" className="py-12 text-center text-gray-400">Loading master database...</td></tr>
+                      ) : (
+                        globalData
+                          .filter(item => dataFilter === 'All' || item.task_type === dataFilter)
+                          .filter(item => {
+                            if (!dataSearch.trim()) return true;
+                            const term = dataSearch.toLowerCase();
+                            return String(item.cycle_id).includes(term) || item.staff_name.toLowerCase().includes(term);
+                          })
+                          .map(item => (
+                          <tr key={`${item.source}-${item.id}`} className="hover:bg-gray-50/50 transition-colors group">
+                            <td className="py-5 px-2 font-bold text-gray-900 text-[15px]">{item.cycle_id}</td>
+                            <td className="py-5 px-2">
+                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold tracking-wide ${
+                                item.task_type === 'Routine Checkup' ? 'bg-blue-50 text-blue-600' :
+                                item.task_type === 'Overall Checkup' ? 'bg-purple-50 text-purple-600' :
+                                item.task_type === 'Station Visit' ? 'bg-emerald-50 text-emerald-600' :
+                                item.task_type === 'Pre-task Cross-check' ? 'bg-indigo-50 text-indigo-600' :
+                                'bg-red-50 text-red-600'
+                              }`}>
+                                {item.task_type}
+                              </span>
+                            </td>
+                            <td className="py-5 px-2 text-gray-600 font-medium text-sm">{item.staff_name}</td>
+                            <td className="py-5 px-2">
+                              <span className="text-gray-900 font-semibold block text-sm">{new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              <span className="text-gray-400 text-[11px]">{new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                            </td>
+                            <td className="py-5 px-2 text-right">
+                              <button onClick={() => handleDeleteRecord(item.source, item.id)} className="text-red-400 hover:text-red-600 text-xs font-bold transition">Delete</button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                      {(!isLoadingGlobal && globalData.length === 0) && (
+                        <tr><td colSpan="5" className="py-12 text-center text-gray-400">No records found matching your search.</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -463,7 +689,7 @@ export default function AdminDashboard() {
 
             {activeTab === 'reports' && (
               <>
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="">
               <div className="flex justify-between items-center mb-6">
                  <h3 className="text-gray-900 text-lg">Report Configuration</h3>
                  {!isEditingNotes ? (
@@ -500,7 +726,17 @@ export default function AdminDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-500 mb-2">Override Text (Leave empty to use automated text)</label>
+                  <div className="flex justify-between items-end mb-2">
+                    <label className="block text-sm text-gray-500">Override Text (Leave empty to use automated text)</label>
+                    <button 
+                      onClick={handleRefine}
+                      disabled={!isEditingNotes || isRefining || !overrides[activeEditSection]}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${!isEditingNotes || !overrides[activeEditSection] ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}
+                    >
+                      {isRefining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      {isRefining ? 'Refining...' : 'Make Professional'}
+                    </button>
+                  </div>
                   <textarea 
                     className={`w-full p-4 rounded-xl border-none outline-none text-sm text-gray-900 whitespace-pre-wrap ${isEditingNotes ? 'bg-gray-50 focus:ring-2 focus:ring-black' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                     rows="4"
@@ -514,13 +750,13 @@ export default function AdminDashboard() {
             </div>
 
       {/* This is the printable report */}
-            <div className="report-document bg-white p-10 rounded-2xl shadow-sm border border-gray-300 mb-8" id="pdf-report-content" style={{ color: '#000' }}>
+            <div className="report-document mb-8" id="pdf-report-content" style={{ color: '#000' }}>
 
               {/* Header */}
               <div className="report-header flex justify-between items-end border-b-2 border-gray-900 pb-4 mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 mb-1">Daily Operations Report</h2>
-                  <p className="text-sm text-gray-900">Date: {todayStr} &nbsp;|&nbsp; Prepared by: Sushan Karki</p>
+                  <p className="text-sm text-gray-900">Date: {todayStr} &nbsp;|&nbsp; Prepared by: Automated System</p>
                 </div>
                 <div className="text-right text-xs text-gray-900">Zum Operations</div>
               </div>
@@ -546,7 +782,7 @@ export default function AdminDashboard() {
               <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">2. Routine Cycle Checkups</h3>
                 {routineStaff.length === 0 ? (
-                  <p className="text-sm text-gray-900">No routine checkups were submitted for this shift.</p>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.routine || 'No routine checkups were submitted for this shift.'}</p>
                 ) : (
                   <>
                     {overrides.routine.trim() ? (
@@ -557,26 +793,26 @@ export default function AdminDashboard() {
                       </p>
                     )}
                     {/* Summary table */}
-                    <table className="w-full text-sm text-left border-collapse mb-4">
+                    <table className="w-full text-sm text-left border-collapse mb-4 border border-gray-400">
                       <thead>
-                        <tr className="border-b border-gray-900 ">
-                          <th className="py-2 px-3 font-semibold text-gray-900 w-1/4">Staff</th>
-                          <th className="py-2 px-3 font-semibold text-gray-900">Cycle IDs</th>
-                          <th className="py-2 px-3 font-semibold text-gray-900 text-right w-16">Total</th>
+                        <tr>
+                          <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 w-1/4">Staff</th>
+                          <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Cycle IDs</th>
+                          <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 text-right w-16">Total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {routineStaff.map(staff => (
-                          <tr key={staff} className="border-b border-gray-100">
-                            <td className="py-2 px-3 font-medium text-gray-900">{staff}</td>
-                            <td className="py-2 px-3 text-gray-900 text-xs">{cycleIds(data.routine[staff] || [])}</td>
-                            <td className="py-2 px-3 text-right font-bold text-gray-900">{(data.routine[staff] || []).length}</td>
+                          <tr key={staff}>
+                            <td className="border border-gray-400 py-2 px-3 font-medium text-gray-900">{staff}</td>
+                            <td className="border border-gray-400 py-2 px-3 text-gray-900 text-xs">{renderCycleGroup(data.routine[staff] || [])}</td>
+                            <td className="border border-gray-400 py-2 px-3 text-right font-bold text-gray-900">{(data.routine[staff] || []).length}</td>
                           </tr>
                         ))}
-                        <tr className="border-t-2 border-gray-900 ">
-                          <td className="py-2 px-3 font-bold text-gray-900">Grand Total</td>
-                          <td></td>
-                          <td className="py-2 px-3 text-right font-bold text-gray-900">
+                        <tr>
+                          <td className="border border-gray-400 py-2 px-3 font-bold text-gray-900">Grand Total</td>
+                          <td className="border border-gray-400"></td>
+                          <td className="border border-gray-400 py-2 px-3 text-right font-bold text-gray-900">
                             {routineStaff.reduce((sum, s) => sum + (data.routine[s] || []).length, 0)}
                           </td>
                         </tr>
@@ -591,7 +827,7 @@ export default function AdminDashboard() {
               <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">3. Pre-Task Cross Check</h3>
                 {pretaskStaff.length === 0 ? (
-                  <p className="text-sm text-gray-900">No pre-task cross checks were submitted for this shift.</p>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.pretask || 'No pre-task cross checks were submitted for this shift.'}</p>
                 ) : (
                   <>
                     {overrides.pretask.trim() ? (
@@ -610,24 +846,34 @@ export default function AdminDashboard() {
                       <p className="text-sm leading-relaxed text-gray-900 mb-2">
                         {staff} submitted {recordLabel(rows.length, 'pre-task record')} for cycle IDs {cycleIds(rows)}. {staffIssueCount === 0 ? 'No issue was recorded in these entries.' : `${recordLabel(staffIssueCount, 'entry')} ${staffIssueCount === 1 ? 'requires' : 'require'} follow-up.`}
                       </p>
-                      <table className="w-full text-sm text-left border-collapse mb-2">
-                        <thead>
-                          <tr className="border-b border-gray-900">
-                            <th className="py-2 px-3 font-semibold text-gray-900 w-20">Cycle</th>
-                            <th className="py-2 px-3 font-semibold text-gray-900 w-24">Condition</th>
-                            <th className="py-2 px-3 font-semibold text-gray-900">Parts Checked / Issue</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((row, i) => (
-                            <tr key={i} className="border-b border-gray-100">
-                              <td className="py-2 px-3 font-bold text-gray-900">{row.cycle_id}</td>
-                              <td className="py-2 px-3 text-gray-900">{row.condition === 'issue' ? 'Issue' : 'Good'}</td>
-                              <td className="py-2 px-3 text-gray-900">{row.issue || row.parts_checked || '—'}</td>
+                      {rows.filter(r => r.condition === 'issue').length > 0 && (
+                        <table className="w-full text-sm text-left border-collapse mb-2 border border-gray-400">
+                          <thead>
+                            <tr>
+                              <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 w-20">Cycle</th>
+                              <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 w-24">Condition</th>
+                              <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Parts Checked / Issue</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td colSpan="3" className="border border-gray-400 py-2 px-3 font-bold text-gray-900 bg-gray-100">Action Required (Issues)</td>
+                            </tr>
+                            {rows.filter(r => r.condition === 'issue').map((row, i) => (
+                              <tr key={`issue-${i}`}>
+                                <td className="border border-gray-400 py-2 px-3 font-bold text-gray-900">{row.cycle_id}</td>
+                                <td className="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Issue</td>
+                                <td className="border border-gray-400 py-2 px-3 text-gray-900">{row.issue || row.parts_checked || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {rows.filter(r => r.condition !== 'issue').length > 0 && (
+                        <p className="text-sm text-gray-900 mt-2 mb-2">
+                          <span className="font-bold">Good Condition:</span> {rows.filter(r => r.condition !== 'issue').map(r => r.cycle_id).join(', ')}
+                        </p>
+                      )}
                     </div>
                   )})}
                   </>
@@ -649,24 +895,32 @@ export default function AdminDashboard() {
                       </p>
                     )}
                     <p className="text-sm mb-2"><span className="font-medium text-gray-900">Staff:</span> {data.overall.staff} &nbsp;|&nbsp; <span className="font-medium text-gray-900">Total Cycles:</span> {overallRows.length}</p>
-                    <table className="w-full text-sm text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-gray-900">
-                          <th className="py-2 px-3 font-semibold text-gray-900 w-20">Cycle</th>
-                          <th className="py-2 px-3 font-semibold text-gray-900 w-24">Battery</th>
-                          <th className="py-2 px-3 font-semibold text-gray-900">Condition</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {overallRows.map((row, i) => (
-                          <tr key={i} className="border-b border-gray-100">
-                            <td className="py-2 px-3 font-bold text-gray-900">{row.cycle_id}</td>
-                            <td className="py-2 px-3 text-gray-900">{row.battery_id || '—'}</td>
-                            <td className="py-2 px-3 text-gray-900">{row.condition === 'issue' ? 'Issue' : 'Good'}</td>
+                    {overallRows.filter(r => r.condition === 'issue').length > 0 && (
+                      <table className="w-full text-sm text-left border-collapse mb-2 border border-gray-400">
+                        <thead>
+                          <tr>
+                            <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 w-20">Cycle</th>
+                            <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Condition</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td colSpan="2" className="border border-gray-400 py-2 px-3 font-bold text-gray-900 bg-gray-100">Action Required (Issues)</td>
+                          </tr>
+                          {overallRows.filter(r => r.condition === 'issue').map((row, i) => (
+                            <tr key={`issue-${i}`}>
+                              <td className="border border-gray-400 py-2 px-3 font-bold text-gray-900">{row.cycle_id}</td>
+                              <td className="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Issue: {row.issue || row.parts_checked || 'Unknown'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    {overallRows.filter(r => r.condition !== 'issue').length > 0 && (
+                      <p className="text-sm text-gray-900 mt-2 mb-2">
+                        <span className="font-bold">Good Condition:</span> {overallRows.filter(r => r.condition !== 'issue').map(r => r.cycle_id).join(', ')}
+                      </p>
+                    )}
                   </>
                 )}
               </div>
@@ -675,7 +929,7 @@ export default function AdminDashboard() {
               <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">5. Station Visit</h3>
                 {stationRows.length === 0 ? (
-                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.station || `No station visit was submitted today. The assigned staff member is ${data.station.staff}.`}</p>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{overrides.station || (data.station.staff === 'Not scheduled today' ? 'No station visit is scheduled for today.' : `No station visit was submitted today. The assigned staff member is ${data.station.staff}.`)}</p>
                 ) : (
                   <>
                     {overrides.station.trim() ? (
@@ -686,7 +940,7 @@ export default function AdminDashboard() {
                       </p>
                     )}
                     <p className="text-sm mb-2"><span className="font-medium text-gray-900">Staff:</span> {data.station.staff} &nbsp;|&nbsp; <span className="font-medium text-gray-900">Total Cycles:</span> {stationRows.length}</p>
-                    <p className="text-xs text-gray-900">{cycleIds(stationRows)}</p>
+                    <div className="text-xs text-gray-900">{renderCycleGroup(stationRows)}</div>
                   </>
                 )}
               </div>
@@ -733,23 +987,23 @@ export default function AdminDashboard() {
                       : `The maintenance team submitted ${recordLabel(maintenance.length, 'repair activity')}. Each record below identifies the cycle, responsible staff member, and the repair or fix description entered during the shift.`}
                   </p>
                 )}
-                <table className="w-full text-sm text-left border-collapse">
+                <table className="w-full text-sm text-left border-collapse border border-gray-400">
                   <thead>
-                    <tr className="border-b border-gray-900 ">
-                      <th className="py-2 px-3 font-semibold text-gray-900 w-20">Cycle ID</th>
-                      <th className="py-2 px-3 font-semibold text-gray-900 w-24">Staff</th>
-                      <th className="py-2 px-3 font-semibold text-gray-900">Repair / Fix Description</th>
+                    <tr>
+                      <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 w-20">Cycle ID</th>
+                      <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900 w-24">Staff</th>
+                      <th className="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Repair / Fix Description</th>
                     </tr>
                   </thead>
                   <tbody>
                     {maintenance.length === 0 ? (
-                      <tr><td colSpan="3" className="py-4 px-3 text-gray-900 italic">No repairs recorded for this shift.</td></tr>
+                      <tr><td colSpan="3" className="border border-gray-400 py-4 px-3 text-gray-900 italic">No repairs recorded for this shift.</td></tr>
                     ) : (
                       maintenance.map((m, idx) => (
-                        <tr key={idx} className="border-b border-gray-100">
-                          <td className="py-2 px-3 font-bold text-gray-900">{m.cycleId}</td>
-                          <td className="py-2 px-3 text-gray-900">{m.staffName || '—'}</td>
-                          <td className="py-2 px-3 text-gray-900">{m.fix}</td>
+                        <tr key={idx}>
+                          <td className="border border-gray-400 py-2 px-3 font-bold text-gray-900">{m.cycleId}</td>
+                          <td className="border border-gray-400 py-2 px-3 text-gray-900">{m.staffName || '—'}</td>
+                          <td className="border border-gray-400 py-2 px-3 text-gray-900">{m.fix}</td>
                         </tr>
                       ))
                     )}

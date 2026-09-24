@@ -23,12 +23,9 @@ body {
 #pdf-report-content.report-document {
   box-sizing: border-box;
   width: 100%;
-  max-width: 210mm;
+  max-width: 100%;
   margin-right: auto;
   margin-left: auto;
-  padding: 18mm 16mm;
-  border-color: #e5e7eb;
-  border-radius: 0;
   color: #111827;
   font-family: Arial, Helvetica, sans-serif;
   font-size: 14px;
@@ -92,6 +89,7 @@ body {
 
 #pdf-report-content p {
   color: #111827;
+  text-align: justify;
 }
 
 #pdf-report-content table {
