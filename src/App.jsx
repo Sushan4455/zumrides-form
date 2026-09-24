@@ -67,17 +67,14 @@ function App() {
               className={`w-full rounded-xl bg-gray-100 px-4 py-4 text-base font-medium text-gray-900 outline-none appearance-none focus:ring-2 focus:ring-black ${nameError ? 'border border-red-500' : 'border-none'}`}
             >
               <option value="" disabled>Enter your name...</option>
-              <optgroup label="Operations Team">
-                <option value="Kabir">Kabir</option>
-                <option value="Laxman">Laxman</option>
-                <option value="Anish">Anish</option>
-                <option value="Surya">Surya</option>
-              </optgroup>
-              <optgroup label="Maintenance Team">
-                <option value="Ram">Ram</option>
-                <option value="Kiran">Kiran</option>
-                <option value="Dipesh">Dipesh</option>
-              </optgroup>
+              <option value="Kabir">Kabir</option>
+              <option value="Laxman">Laxman</option>
+              <option value="Anish">Anish</option>
+              <option value="Surya">Surya</option>
+              <option value="Ram">Ram</option>
+              <option value="Kiran">Kiran</option>
+              <option value="Dipesh">Dipesh</option>
+              <option value="Sandesh">Sandesh</option>
             </select>
             {nameError && <p className="text-red-500 text-sm mt-2 font-medium">Please select your name first!</p>}
           </div>
@@ -97,6 +94,11 @@ function App() {
               <ClipboardList size={24} /> <span>Station</span>
               <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.station} today` : 'No Saturday assignment'}</span>
             </button>
+            
+            <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_swap'); }} className="col-span-2 mt-1 min-h-12 rounded-full bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.99] flex items-center justify-center gap-2 sm:mt-2 sm:min-h-14">
+              <ClipboardList size={20} /> <span>Battery Swap</span>
+            </button>
+
             <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('maintenance'); }} className="col-span-2 mt-1 min-h-12 rounded-full bg-gray-900 px-5 py-3.5 text-white border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2 sm:mt-2 sm:min-h-14">
               <Wrench size={20} /> <span>Maintenance</span>
             </button>
