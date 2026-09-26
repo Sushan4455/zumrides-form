@@ -13,14 +13,19 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isLiveEditMode, setIsLiveEditMode] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [activeTab, setActiveTab] = useState('reports');
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [activeIssuesList, setActiveIssuesList] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   
   const [assignStaff, setAssignStaff] = useState('');
   const [assignCycles, setAssignCycles] = useState('');
   const [assignMsg, setAssignMsg] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [currentAssignments, setCurrentAssignments] = useState({});
 
   const DEFAULT_OVERRIDES = {
     executive: '',
@@ -109,6 +114,9 @@ export default function AdminDashboard() {
 
       setAssignMsg("✅ Successfully assigned cycles!");
       setAssignCycles('');
+      
+      // Refresh the assignments list
+      fetchDashboardData();
     } catch (err) {
       setAssignMsg("❌ Error sending assignments: " + err.message);
     }
@@ -176,8 +184,38 @@ export default function AdminDashboard() {
         maintenance: []
       };
 
+      const { data: assignmentsData } = await supabase
+        .from('assignments')
+        .select('*')
+        .gte('created_at', start)
+        .lt('created_at', end)
+        .order('created_at', { ascending: false });
+        
+      const latestAssignments = {};
+      if (assignmentsData) {
+        assignmentsData.forEach(row => {
+          if (!latestAssignments[row.staff_name]) {
+            latestAssignments[row.staff_name] = row.cycles;
+          }
+        });
+      }
+      
+      // Initialize routine array with all assigned staff so they appear in the report
+      Object.keys(latestAssignments).forEach(staff => {
+        result.routine[staff] = [];
+      });
+      
+      setCurrentAssignments(latestAssignments);
+
       if (tasksData) {
+        const seenTasks = new Set();
+        
         tasksData.forEach(row => {
+          // Deduplicate by task_type + staff_name + cycle_id to prevent duplicates on the report
+          const uniqueKey = `${row.task_type}-${row.staff_name}-${row.cycle_id}`;
+          if (seenTasks.has(uniqueKey)) return;
+          seenTasks.add(uniqueKey);
+          
           if (row.task_type === 'Routine Checkup') {
             if (!result.routine[row.staff_name]) result.routine[row.staff_name] = [];
             result.routine[row.staff_name].push(row);
@@ -215,35 +253,62 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, isAuthenticated]);
 
+  const fetchGlobal = async () => {
+    setIsLoadingGlobal(true);
+    try {
+      const { data: tasks } = await supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(1000);
+      const { data: maint } = await supabase.from('maintenance').select('*').order('created_at', { ascending: false }).limit(1000);
+      
+      const combined = [
+        ...(tasks || []).map(t => ({ ...t, source: 'tasks' })),
+        ...(maint || []).map(m => ({
+           id: m.id,
+           task_type: 'Maintenance',
+           staff_name: m.staff_name,
+           cycle_id: m.cycle_id,
+           created_at: m.created_at,
+           fix_description: m.fix_description,
+           source: 'maintenance'
+        }))
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      setGlobalData(combined);
+    } catch (err) {
+      console.error(err);
+    }
+    setIsLoadingGlobal(false);
+  };
+
   useEffect(() => {
     if (activeTab === 'manage_data' && isAuthenticated) {
-      const fetchGlobal = async () => {
-        setIsLoadingGlobal(true);
-        try {
-          const { data: tasks } = await supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(1000);
-          const { data: maint } = await supabase.from('maintenance').select('*').order('created_at', { ascending: false }).limit(1000);
-          
-          const combined = [
-            ...(tasks || []).map(t => ({ ...t, source: 'tasks' })),
-            ...(maint || []).map(m => ({
-               id: m.id,
-               task_type: 'Maintenance',
-               staff_name: m.staff_name,
-               cycle_id: m.cycle_id,
-               created_at: m.created_at,
-               fix_description: m.fix_description,
-               source: 'maintenance'
-            }))
-          ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-          
-          setGlobalData(combined);
-        } catch (err) {
-          console.error(err);
-        }
-        setIsLoadingGlobal(false);
-      };
       fetchGlobal();
     }
+  }, [activeTab, isAuthenticated]);
+
+  const fetchActiveIssues = async () => {
+    const { start, end } = getCurrentShiftWindow(selectedDate);
+    const { data } = await supabase
+      .from('tasks')
+      .select('*')
+      .gte('created_at', start)
+      .lt('created_at', end)
+      .eq('condition', 'issue')
+      .order('created_at', { ascending: false });
+      
+    if (data) {
+      const seen = new Set();
+      const unique = data.filter(issue => {
+         const key = `${issue.task_type}-${issue.staff_name}-${issue.cycle_id}`;
+         if (seen.has(key)) return false;
+         seen.add(key);
+         return true;
+      });
+      setActiveIssuesList(unique);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'issues' && isAuthenticated) fetchActiveIssues();
   }, [activeTab, isAuthenticated]);
 
   const handleLogin = async (e) => {
@@ -278,6 +343,60 @@ export default function AdminDashboard() {
       await fetchDashboardData(); // Refresh UI and PDF data automatically
     } catch (err) {
       alert('Error deleting record: ' + err.message + '\nMake sure you ran the SQL script to allow deletes!');
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRecord) return;
+    setIsSavingEdit(true);
+    try {
+      const table = editingRecord.source;
+      let updates = {};
+      
+      if (table === 'tasks') {
+        updates = { 
+          condition: editingRecord.condition, 
+          issue: editingRecord.issue,
+          task_type: editingRecord.task_type
+        };
+      } else if (table === 'maintenance') {
+        updates = { fix_description: editingRecord.fix_description };
+      }
+      
+      const { error } = await supabase.from(table).update(updates).eq('id', editingRecord.id);
+      if (error) throw error;
+      
+      alert('Record updated successfully!');
+      setEditingRecord(null);
+      fetchGlobal();
+      fetchDashboardData();
+    } catch (err) {
+      alert('Error updating record: ' + err.message);
+    }
+    setIsSavingEdit(false);
+  };
+
+  const handleResolveIssue = async (issueRecord) => {
+    if (!window.confirm("Mark this issue as solved? It will be removed from the active issues list and updated on today's report.")) return;
+    try {
+      const { start, end } = getCurrentShiftWindow(selectedDate);
+      
+      // Update ALL duplicates for this cycle/staff in today's shift to ensure it disappears entirely
+      const { error } = await supabase.from('tasks').update({ condition: 'good', issue: '' })
+        .gte('created_at', start)
+        .lt('created_at', end)
+        .eq('cycle_id', issueRecord.cycle_id)
+        .eq('staff_name', issueRecord.staff_name)
+        .eq('task_type', issueRecord.task_type);
+        
+      if (error) throw error;
+      
+      alert('Issue marked as solved successfully!');
+      fetchActiveIssues();
+      fetchDashboardData();
+      fetchGlobal();
+    } catch (err) {
+      alert("Error: " + err.message);
     }
   };
 
@@ -338,21 +457,14 @@ export default function AdminDashboard() {
   const cycleIds = (rows) => rows.map(r => r.cycle_id || r).join(', ');
   
   const renderCycleGroup = (rows) => {
-    const good = rows.filter(r => r.condition !== 'issue').map(r => r.cycle_id);
-    const issues = rows.filter(r => r.condition === 'issue').map(r => {
-      const parts = r.issue || r.parts_checked;
-      return parts ? `${r.cycle_id} (${parts})` : r.cycle_id;
+    const list = rows.map(r => {
+      if (r.condition === 'issue') {
+        const parts = r.issue || r.parts_checked;
+        return parts ? `${r.cycle_id} (${parts})` : r.cycle_id;
+      }
+      return r.cycle_id;
     });
-    
-    if (issues.length === 0) return <>{good.join(', ')}</>;
-    if (good.length === 0) return <><span className="font-semibold text-gray-900">Issue:</span> {issues.join(', ')}</>;
-    
-    return (
-      <div className="flex flex-col gap-1">
-        <div><span className="font-semibold text-gray-900">Good:</span> {good.join(', ')}</div>
-        <div><span className="font-semibold text-gray-900">Issue:</span> {issues.join(', ')}</div>
-      </div>
-    );
+    return <>{list.join(', ')}</>;
   };
   const recordLabel = (count, singular) => {
     if (count === 1) return `${count} ${singular}`;
@@ -462,7 +574,15 @@ export default function AdminDashboard() {
               onClick={() => setActiveTab('manage_data')}
               className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg w-full text-left ${activeTab === 'manage_data' ? 'text-gray-900 bg-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}
             >
-              <Database size={18} /> Manage Data
+              <Database size={18} /> Master Archive
+            </button>
+            <button 
+              onClick={() => setActiveTab('issues')}
+              className={`flex items-center gap-3 px-3 py-2 text-sm rounded-lg w-full text-left ${activeTab === 'issues' ? 'text-gray-900 bg-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <div className="w-2 h-2 rounded-full bg-red-500 absolute left-8"></div>
+              <Database size={18} className="opacity-0" /> {/* Spacer */}
+              <span className="-ml-7 flex items-center gap-2 text-red-600 font-medium">Active Issues</span>
             </button>
           </nav>
         </div>
@@ -540,6 +660,23 @@ export default function AdminDashboard() {
                     </button>
                     {assignMsg && <span className="text-sm text-green-600">{assignMsg}</span>}
                   </div>
+                </div>
+
+                {/* Current Assignments Display */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                  <h3 className="text-gray-900 text-lg font-medium mb-4">Today's Assigned Cycles</h3>
+                  {Object.keys(currentAssignments).length === 0 ? (
+                    <p className="text-sm text-gray-500 italic">No cycles have been assigned to anyone for today.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {Object.entries(currentAssignments).map(([staff, cycles]) => (
+                        <div key={staff} className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                          <h4 className="font-semibold text-gray-900 mb-2">{staff}</h4>
+                          <p className="text-sm text-gray-700 font-medium">{cycles}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* 2-Week Schedule UI */}
@@ -673,6 +810,7 @@ export default function AdminDashboard() {
                               <span className="text-gray-400 text-[11px]">{new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                             </td>
                             <td className="py-5 px-2 text-right">
+                              <button onClick={() => setEditingRecord(item)} className="text-indigo-600 hover:text-indigo-800 text-xs font-bold transition mr-3">Edit</button>
                               <button onClick={() => handleDeleteRecord(item.source, item.id)} className="text-red-400 hover:text-red-600 text-xs font-bold transition">Delete</button>
                             </td>
                           </tr>
@@ -687,15 +825,54 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {/* Active Issues UI */}
+            {activeTab === 'issues' && (
+              <div className="w-full">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-gray-900 text-xl font-bold">Active Cycle Issues</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {activeIssuesList.length === 0 ? (
+                    <div className="col-span-full p-8 text-center bg-gray-50 rounded-2xl border border-gray-200">
+                      <p className="text-gray-500">No active issues found! All cycles are operating smoothly.</p>
+                    </div>
+                  ) : activeIssuesList.map(issue => (
+                    <div key={issue.id} className="bg-white p-6 rounded-2xl border border-red-200 shadow-sm relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h4 className="text-2xl font-black text-gray-900">{issue.cycle_id}</h4>
+                          <span className="text-xs font-medium text-red-600 uppercase tracking-wide">{issue.task_type || 'Reported Issue'}</span>
+                        </div>
+                        <button onClick={() => handleResolveIssue(issue)} className="px-3 py-1.5 bg-green-50 text-green-700 text-xs font-bold rounded-full hover:bg-green-100 transition">
+                          Mark Solved
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100">{issue.issue || issue.parts_checked || 'No details provided.'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {activeTab === 'reports' && (
               <>
                 <div className="">
               <div className="flex justify-between items-center mb-6">
                  <h3 className="text-gray-900 text-lg">Report Configuration</h3>
                  {!isEditingNotes ? (
-                    <button onClick={() => setIsEditingNotes(true)} className="px-5 py-2 bg-white border border-gray-200 text-gray-800 rounded-full text-sm hover:bg-gray-50 transition shadow-sm">
-                      Edit Configuration
-                    </button>
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={() => setIsLiveEditMode(!isLiveEditMode)} 
+                        className={`px-5 py-2 rounded-full text-sm font-medium transition shadow-sm ${isLiveEditMode ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-800 hover:bg-gray-50'}`}
+                      >
+                        {isLiveEditMode ? 'Exit Word-Style Edit' : 'Word-Style Edit Mode'}
+                      </button>
+                      <button onClick={() => setIsEditingNotes(true)} className="px-5 py-2 bg-white border border-gray-200 text-gray-800 rounded-full text-sm hover:bg-gray-50 transition shadow-sm">
+                        Edit Configuration
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex gap-2">
                       <button onClick={() => setIsEditingNotes(false)} className="px-5 py-2 bg-gray-100 text-gray-800 rounded-full text-sm hover:bg-gray-200 transition">
@@ -750,7 +927,13 @@ export default function AdminDashboard() {
             </div>
 
       {/* This is the printable report */}
-            <div className="report-document mb-8" id="pdf-report-content" style={{ color: '#000' }}>
+            <div 
+              className={`report-document mb-8 ${isLiveEditMode ? 'ring-4 ring-indigo-200 bg-indigo-50/20 rounded-xl p-4 transition-all' : ''}`}
+              id="pdf-report-content" 
+              style={{ color: '#000' }}
+              contentEditable={isLiveEditMode}
+              suppressContentEditableWarning={true}
+            >
 
               {/* Header */}
               <div className="report-header flex justify-between items-end border-b-2 border-gray-900 pb-4 mb-6">
@@ -1046,6 +1229,80 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Edit Record Modal */}
+      {editingRecord && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-xl relative animate-in fade-in zoom-in duration-200">
+            <h3 className="text-xl font-bold text-gray-900 mb-6">Edit Record</h3>
+            
+            {editingRecord.source === 'tasks' ? (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Task Type</label>
+                  <input 
+                    type="text"
+                    list="task-types-list"
+                    value={editingRecord.task_type || ''}
+                    onChange={e => setEditingRecord({...editingRecord, task_type: e.target.value})}
+                    className="w-full p-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-black text-sm"
+                    placeholder="Type or select a task type..."
+                  />
+                  <datalist id="task-types-list">
+                    <option value="Routine Checkup" />
+                    <option value="Overall Checkup" />
+                    <option value="Pre-Task Check" />
+                    <option value="Station Visit" />
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Condition</label>
+                  <select 
+                    value={editingRecord.condition}
+                    onChange={e => setEditingRecord({...editingRecord, condition: e.target.value})}
+                    className="w-full p-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-black text-sm"
+                  >
+                    <option value="good">Good</option>
+                    <option value="issue">Issue</option>
+                  </select>
+                </div>
+                {editingRecord.condition === 'issue' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Issue Description (Added to Active Issues)</label>
+                    <textarea 
+                      value={editingRecord.issue}
+                      onChange={e => setEditingRecord({...editingRecord, issue: e.target.value})}
+                      className="w-full p-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-black text-sm"
+                      rows="3"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Repair Description</label>
+                  <textarea 
+                    value={editingRecord.fix_description}
+                    onChange={e => setEditingRecord({...editingRecord, fix_description: e.target.value})}
+                    className="w-full p-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-black text-sm"
+                    rows="3"
+                  />
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end gap-3 mt-8">
+              <button onClick={() => setEditingRecord(null)} className="px-5 py-2.5 rounded-full text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition">
+                Cancel
+              </button>
+              <button onClick={handleSaveEdit} disabled={isSavingEdit} className="px-5 py-2.5 rounded-full text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 flex items-center gap-2">
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

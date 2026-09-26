@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { ClipboardList, Wrench } from "lucide-react";
+import { ClipboardList, MessageSquare, Wrench } from "lucide-react";
 import TaskForm from "./components/TaskForm";
+import FeedbackForm from "./components/FeedbackForm";
 import AdminDashboard from "./components/AdminDashboard";
 import { getDailyAssignments } from "./utils";
 import { supabase } from "./supabaseClient";
@@ -57,7 +58,11 @@ function App() {
     return (
       <main className="min-h-[100dvh] bg-gray-50 px-4 py-8 sm:px-6 sm:py-12 flex justify-center">
         <div className="w-full max-w-md bg-transparent py-2 sm:py-4">
-          <TaskForm taskType={selectedTask} staffName={staffName} onBack={() => setSelectedTask(null)} />
+          {selectedTask === 'feedback' ? (
+            <FeedbackForm staffName={staffName} onBack={() => setSelectedTask(null)} />
+          ) : (
+            <TaskForm taskType={selectedTask} staffName={staffName} onBack={() => setSelectedTask(null)} />
+          )}
         </div>
       </main>
     );
@@ -128,6 +133,12 @@ function App() {
             </div>
 
             {/* Section 3: Maintenance */}
+            <div>
+              <button onClick={() => { if (!staffName.trim()) return setNameError(true); setSelectedTask('feedback'); }} className="w-full min-h-14 rounded-2xl bg-gray-100 px-5 py-4 text-gray-900 font-semibold border-none transition hover:bg-gray-200 active:scale-[0.99] flex items-center justify-center gap-2">
+                <MessageSquare size={20} /> <span>Cycle Feedback</span>
+              </button>
+            </div>
+
             <div className="pt-2">
               <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('maintenance'); }} className="w-full min-h-14 rounded-2xl bg-gray-900 px-5 py-4 text-white font-semibold border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2">
                 <Wrench size={20} /> <span>Maintenance</span>

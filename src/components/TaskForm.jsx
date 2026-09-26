@@ -281,7 +281,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
     // Pre-process cycles to auto-flag missing parts as issues
     const processedCycles = cycles.map(c => {
-      if (taskType !== 'maintenance' && c.condition === 'good') {
+      if ((taskType === 'overall' || taskType === 'pretask') && c.condition === 'good') {
         const unchecked = PARTS_LIST.filter(p => !c.partsChecked.includes(p.name)).map(p => p.name);
         if (unchecked.length > 0) {
           return { ...c, condition: 'issue', issue: `Unchecked Parts: ${unchecked.join(', ')}` };
