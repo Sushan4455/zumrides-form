@@ -10,7 +10,7 @@ function App() {
   const [selectedTask, setSelectedTask] = useState(() => localStorage.getItem('zum_selectedTask') || null);
   const [staffName, setStaffName] = useState(() => localStorage.getItem('zum_staffName') || '');
   const [nameError, setNameError] = useState(false);
-  const [postponements, setPostponements] = useState({ station: [], overall: [] });
+  const [postponements, setPostponements] = useState({ station: [], overall: [], manualStation: {}, manualOverall: {} });
 
   useEffect(() => {
     if (selectedTask) localStorage.setItem('zum_selectedTask', selectedTask);
@@ -32,7 +32,14 @@ function App() {
           if (data) {
             const st = data.filter(d => d.type === 'station').map(d => d.date_key);
             const ov = data.filter(d => d.type === 'overall').map(d => d.date_key);
-            setPostponements({ station: st, overall: ov });
+            
+            const manualSt = {};
+            const manualOv = {};
+            data.forEach(d => {
+              if (d.type.startsWith('station:')) manualSt[d.date_key] = d.type.split(':')[1];
+              if (d.type.startsWith('overall:')) manualOv[d.date_key] = d.type.split(':')[1];
+            });
+            setPostponements({ station: st, overall: ov, manualStation: manualSt, manualOverall: manualOv });
           }
         } catch (e) {
           console.log('Error fetching postponements:', e);

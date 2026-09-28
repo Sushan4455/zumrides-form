@@ -48,7 +48,7 @@ export default function AdminDashboard() {
   const [dataSearch, setDataSearch] = useState('');
   const [dataFilter, setDataFilter] = useState('All');
   const [isLoadingGlobal, setIsLoadingGlobal] = useState(false);
-  const [postponements, setPostponements] = useState({ station: [], overall: [] });
+  const [postponements, setPostponements] = useState({ station: [], overall: [], manualStation: {}, manualOverall: {} });
 
   useEffect(() => {
     fetchPostponements();
@@ -61,15 +61,24 @@ export default function AdminDashboard() {
       if (data) {
         const st = data.filter(d => d.type === 'station').map(d => d.date_key);
         const ov = data.filter(d => d.type === 'overall').map(d => d.date_key);
-        setPostponements({ station: st, overall: ov });
+        const manualSt = {};
+        const manualOv = {};
+        data.forEach(d => {
+          if (d.type.startsWith('station:')) manualSt[d.date_key] = d.type.split(':')[1];
+          if (d.type.startsWith('overall:')) manualOv[d.date_key] = d.type.split(':')[1];
+        });
+        setPostponements({ station: st, overall: ov, manualStation: manualSt, manualOverall: manualOv });
       }
     } catch (e) {
       console.log('Error fetching postponements:', e);
     }
   };
 
+  const getPossibleTypes = (baseType) => [baseType, ...['Kabir', 'Laxman', 'Anish', 'Surya', 'Dipesh'].map(n => `${baseType}:${n}`)];
+
   const handlePostpone = async (dateStr, type) => {
     try {
+      await supabase.from('schedule_overrides').delete().eq('date_key', dateStr).in('type', getPossibleTypes(type));
       const { error } = await supabase.from('schedule_overrides').insert([{ date_key: dateStr, type }]);
       if (error) throw error;
       fetchPostponements();
@@ -80,11 +89,26 @@ export default function AdminDashboard() {
 
   const handleUndoPostpone = async (dateStr, type) => {
     try {
-      const { error } = await supabase.from('schedule_overrides').delete().match({ date_key: dateStr, type });
+      const { error } = await supabase.from('schedule_overrides').delete().eq('date_key', dateStr).in('type', getPossibleTypes(type));
       if (error) throw error;
       fetchPostponements();
     } catch (e) {
       alert("Failed to undo postpone: " + e.message);
+    }
+  };
+
+  const handleOverrideAssign = async (dateStr, baseType, newStaff) => {
+    try {
+      const { error: delError } = await supabase.from('schedule_overrides').delete().eq('date_key', dateStr).in('type', getPossibleTypes(baseType));
+      if (delError) console.error("Del Error:", delError);
+      
+      if (newStaff) {
+        const { error } = await supabase.from('schedule_overrides').insert([{ date_key: dateStr, type: `${baseType}:${newStaff}` }]);
+        if (error) throw error;
+      }
+      fetchPostponements();
+    } catch (e) {
+      alert("Failed to override assignment: " + e.message);
     }
   };
 
@@ -720,7 +744,19 @@ export default function AdminDashboard() {
                             <td className="py-3 px-4 text-gray-700">
                               {day.overall ? (
                                 <div className="flex items-center gap-3">
-                                  <span className="font-medium text-gray-900">{day.overall}</span>
+                                  {idx === 0 ? (
+                                    <select 
+                                      value={day.overall}
+                                      onChange={(e) => handleOverrideAssign(day.dateKey, 'overall', e.target.value)}
+                                      className="font-medium text-gray-900 bg-gray-50 border border-gray-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-black text-sm"
+                                    >
+                                      {['Kabir', 'Laxman', 'Anish', 'Surya', 'Dipesh'].map(name => (
+                                        <option key={name} value={name}>{name}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className="font-medium text-gray-900">{day.overall}</span>
+                                  )}
                                   {idx === 0 && <button onClick={() => handlePostpone(day.dateKey, 'overall')} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100 font-medium transition">Postpone</button>}
                                 </div>
                               ) : postponements.overall.includes(day.dateKey) ? (
@@ -733,7 +769,19 @@ export default function AdminDashboard() {
                             <td className="py-3 px-4 text-gray-700">
                               {day.station ? (
                                 <div className="flex items-center gap-3">
-                                  <span className="font-medium text-gray-900">{day.station}</span>
+                                  {idx === 0 ? (
+                                    <select 
+                                      value={day.station}
+                                      onChange={(e) => handleOverrideAssign(day.dateKey, 'station', e.target.value)}
+                                      className="font-medium text-gray-900 bg-gray-50 border border-gray-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-black text-sm"
+                                    >
+                                      {['Kabir', 'Laxman', 'Anish', 'Surya', 'Dipesh'].map(name => (
+                                        <option key={name} value={name}>{name}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className="font-medium text-gray-900">{day.station}</span>
+                                  )}
                                   {idx === 0 && <button onClick={() => handlePostpone(day.dateKey, 'station')} className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100 font-medium transition">Postpone</button>}
                                 </div>
                               ) : postponements.station.includes(day.dateKey) ? (

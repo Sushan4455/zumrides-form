@@ -44,9 +44,13 @@ export function getDailyAssignments(date = new Date(), postponedDates = { statio
     const cursorKey = `${cursorDateObj.getUTCFullYear()}-${String(cursorDateObj.getUTCMonth() + 1).padStart(2, '0')}-${String(cursorDateObj.getUTCDate()).padStart(2, '0')}`;
     const isStationPostponed = postponedDates?.station?.includes(cursorKey);
     const isOverallPostponed = postponedDates?.overall?.includes(cursorKey);
+    const manualStation = postponedDates?.manualStation?.[cursorKey];
+    const manualOverall = postponedDates?.manualOverall?.[cursorKey];
 
     // --- OVERALL CHECKUP ---
-    if (isOverallPostponed) {
+    if (manualOverall) {
+      currentOverall = manualOverall;
+    } else if (isOverallPostponed) {
       currentOverall = null;
       // We do not advance the overallIndex, effectively "pausing" the rotation for 1 day
     } else {
@@ -55,7 +59,10 @@ export function getDailyAssignments(date = new Date(), postponedDates = { statio
     }
 
     // --- STATION VISIT ---
-    if (isStationPostponed) {
+    if (manualStation) {
+      currentStation = manualStation;
+      daysSinceLastStation = 0; // Manual assignment counts as doing it
+    } else if (isStationPostponed) {
       currentStation = null;
       // We do not increment daysSinceLastStation, "pausing" the timer
     } else {
