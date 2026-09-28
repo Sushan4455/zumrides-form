@@ -11,6 +11,7 @@ function App() {
   const [staffName, setStaffName] = useState(() => localStorage.getItem('zum_staffName') || '');
   const [nameError, setNameError] = useState(false);
   const [postponements, setPostponements] = useState({ station: [], overall: [], manualStation: {}, manualOverall: {} });
+  const [hiddenForms, setHiddenForms] = useState({});
 
   useEffect(() => {
     if (selectedTask) localStorage.setItem('zum_selectedTask', selectedTask);
@@ -39,6 +40,13 @@ function App() {
               if (d.type.startsWith('station:')) manualSt[d.date_key] = d.type.split(':')[1];
               if (d.type.startsWith('overall:')) manualOv[d.date_key] = d.type.split(':')[1];
             });
+            const hiddenMap = {};
+            data.forEach(d => {
+              if (d.date_key === 'GLOBAL' && d.type.startsWith('setting:hide_')) {
+                hiddenMap[d.type.split('setting:hide_')[1]] = true;
+              }
+            });
+            setHiddenForms(hiddenMap);
             setPostponements({ station: st, overall: ov, manualStation: manualSt, manualOverall: manualOv });
           }
         } catch (e) {
@@ -110,37 +118,61 @@ function App() {
             <div className="space-y-3">
               <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-1">Inspections & Checkups</h2>
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('routine'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
-                  <ClipboardList size={24} /> <span>Routine</span>
-                </button>
-                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('pretask'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
-                  <ClipboardList size={24} /> <span>Pre-Task</span>
-                </button>
-                <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('overall', dailyAssignments.overall)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
-                  <ClipboardList size={24} /> <span>Overall</span>
-                  <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.overall} today` : 'No Saturday assignment'}</span>
-                </button>
-                <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('station', dailyAssignments.station)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
-                  <ClipboardList size={24} /> <span>Station</span>
-                  <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.station} today` : 'No Saturday assignment'}</span>
-                </button>
+                {!hiddenForms['routine'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('routine'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
+                    <ClipboardList size={24} /> <span>Routine</span>
+                  </button>
+                )}
+                {!hiddenForms['pretask'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('pretask'); }} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] flex flex-col items-center justify-center gap-2 sm:min-h-28 sm:p-5">
+                    <ClipboardList size={24} /> <span className="text-center">Check List</span>
+                  </button>
+                )}
+                {!hiddenForms['overall'] && (
+                  <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('overall', dailyAssignments.overall)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
+                    <ClipboardList size={24} /> <span>Overall</span>
+                    <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.overall} today` : 'No Saturday assignment'}</span>
+                  </button>
+                )}
+                {!hiddenForms['station'] && (
+                  <button disabled={!dailyAssignments.isWorkingDay} onClick={() => openAssignedTask('station', dailyAssignments.station)} className="min-h-24 rounded-2xl bg-gray-100 p-4 text-gray-900 border-none transition hover:bg-gray-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-100 flex flex-col items-center justify-center gap-1.5 sm:min-h-28 sm:p-5">
+                    <ClipboardList size={24} /> <span>Station</span>
+                    <span className="text-xs font-medium text-gray-500">{dailyAssignments.isWorkingDay ? `${dailyAssignments.station} today` : 'No Saturday assignment'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Section 2: Operations */}
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-3">
-                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
-                  <ClipboardList size={22} /> <span className="text-sm text-center">Standard Battery Swap</span>
-                </button>
-                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
-                  <ClipboardList size={22} /> <span className="text-sm text-center">Home Battery Swap</span>
-                </button>
+                {!hiddenForms['maintenance'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('maintenance'); }} className="min-h-16 rounded-2xl bg-red-50 text-red-700 font-semibold border-none transition hover:bg-red-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                    <ClipboardList size={22} /> <span className="text-sm">Maintenance</span>
+                  </button>
+                )}
+                {!hiddenForms['battery_swap'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                    <ClipboardList size={22} /> <span className="text-sm text-center">Standard Battery Swap</span>
+                  </button>
+                )}
+                {!hiddenForms['home_battery_swap'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                    <ClipboardList size={22} /> <span className="text-sm text-center">Home Battery Swap</span>
+                  </button>
+                )}
               </div>
-              <div className="grid grid-cols-1">
-                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_cycle'); }} className="min-h-16 rounded-2xl bg-indigo-50 text-indigo-700 font-semibold border-none transition hover:bg-indigo-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
-                  <ClipboardList size={22} /> <span className="text-sm">Home Cycle</span>
-                </button>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                {!hiddenForms['home_cycle'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_cycle'); }} className="min-h-16 rounded-2xl bg-indigo-50 text-indigo-700 font-semibold border-none transition hover:bg-indigo-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                    <ClipboardList size={22} /> <span className="text-sm">Home Cycle</span>
+                  </button>
+                )}
+                {!hiddenForms['battery_test'] && (
+                  <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_test'); }} className="min-h-16 rounded-2xl bg-orange-50 text-orange-700 font-semibold border-none transition hover:bg-orange-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                    <ClipboardList size={22} /> <span className="text-sm">Battery Test</span>
+                  </button>
+                )}
               </div>
             </div>
 

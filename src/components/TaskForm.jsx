@@ -77,6 +77,8 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     } else if (taskType === 'home_cycle') {
       setCycles([{ id: Date.now(), manualName: '', homeCycleId: '', batteryId: '', homeTime: '', inVoltage: '', inPercentage: '', outVoltage: '', outPercentage: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
+    } else if (taskType === 'battery_test') {
+      setCycles([{ id: Date.now(), batteryId: '', actualBatteryPercentage: '', actualVoltage: '', status: 'rest office', startTime: '', endTime: '', beforeBatteryPercentage: '', beforeVoltage: '', odometer: '', notes: '' }]);
     } else {
       setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     }
@@ -279,6 +281,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     if (taskType === 'maintenance') niceTaskName = 'Maintenance';
     if (taskType === 'home_cycle') niceTaskName = 'Home Cycle';
     if (taskType === 'home_battery_swap') niceTaskName = 'Home Battery Swap';
+    if (taskType === 'battery_test') niceTaskName = 'Battery Test';
 
     // Pre-process cycles to auto-flag missing parts as issues
     const processedCycles = cycles.map(c => {
@@ -295,6 +298,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     const maintToInsert = [];
     const batterySwapsToInsert = [];
     const homeCyclesToInsert = [];
+    const batteryTestsToInsert = [];
 
     processedCycles.forEach(c => {
       if (taskType === 'battery_swap') {
@@ -340,6 +344,22 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             status: c.status || 'Repaired'
           });
         }
+      } else if (taskType === 'battery_test') {
+        if (c.batteryId) {
+          batteryTestsToInsert.push({
+            staff_name: staffName,
+            battery_id: c.batteryId.trim(),
+            actual_battery_percentage: c.actualBatteryPercentage ? parseFloat(c.actualBatteryPercentage) : null,
+            actual_voltage: c.actualVoltage ? parseFloat(c.actualVoltage) : null,
+            status: c.status,
+            start_time: c.startTime || null,
+            end_time: c.endTime || null,
+            before_battery_percentage: c.beforeBatteryPercentage ? parseFloat(c.beforeBatteryPercentage) : null,
+            before_voltage: c.beforeVoltage ? parseFloat(c.beforeVoltage) : null,
+            odometer: c.odometer ? c.odometer.trim() : null,
+            notes: c.notes ? c.notes.trim() : null
+          });
+        }
       } else {
         if (c.cycleId) {
           tasksToInsert.push({
@@ -356,7 +376,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       }
     });
 
-    if (tasksToInsert.length === 0 && maintToInsert.length === 0 && batterySwapsToInsert.length === 0 && homeCyclesToInsert.length === 0) {
+    if (tasksToInsert.length === 0 && maintToInsert.length === 0 && batterySwapsToInsert.length === 0 && homeCyclesToInsert.length === 0 && batteryTestsToInsert.length === 0) {
       setSaveError('Please fill out the required fields!');
       setIsSubmitting(false);
       return;
@@ -399,6 +419,10 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             const { error } = await supabase.from('home_cycles').insert(homeCyclesToInsert);
             if (error) console.error('Supabase home_cycles err:', error);
           }
+          if (batteryTestsToInsert.length > 0) {
+            const { error } = await supabase.from('battery_tests').insert(batteryTestsToInsert);
+            if (error) console.error('Supabase battery_tests err:', error);
+          }
         } catch (sbErr) {
           console.error('Supabase exception:', sbErr);
         }
@@ -421,6 +445,20 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ batterySwaps: batterySwapsToInsert })
           }).catch(() => {});
+        }
+
+        if (batteryTestsToInsert.length > 0) {
+          // Web App URL from Battery_rested_charging_check_task sheet
+          const BATTERY_TEST_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-YotEtl1_mprMd4smqhHnxV_iBHlegHIvdtvgajVZU1nv290OtaSsKbu76XxSx_Yc4w/exec';
+          
+          if (BATTERY_TEST_SCRIPT_URL !== 'YOUR_NEW_GOOGLE_APPS_SCRIPT_URL_HERE') {
+            fetch(BATTERY_TEST_SCRIPT_URL, {
+              method: 'POST',
+              mode: 'no-cors',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ batteryTests: batteryTestsToInsert })
+            }).catch(() => {});
+          }
         }
       };
 
@@ -527,7 +565,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
       {cycles.map((cycle, index) => (
         <div key={cycle.id} className="mb-6 bg-transparent relative">
-          {taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && (
+          {taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'battery_test' && (
             <div className="flex justify-between items-center mb-2">
               <span className="font-semibold text-gray-900">
                 {cycles.length > 1 ? `Cycle #${index + 1}` : ''}
@@ -577,6 +615,60 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               <div className="mb-4">
                 <label className="block text-sm text-gray-500 mb-1">Home Cycle ID</label>
                 <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 249" value={cycle.homeCycleId || ''} onChange={e => updateCycle(cycle.id, 'homeCycleId', e.target.value)} />
+              </div>
+            </>
+          ) : taskType === 'battery_test' ? (
+            <>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-500 mb-1">Battery ID</label>
+                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                <div>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Actual Battery %</label>
+                  <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 85" value={cycle.actualBatteryPercentage} onChange={e => updateCycle(cycle.id, 'actualBatteryPercentage', e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Actual Voltage</label>
+                  <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 52.5" value={cycle.actualVoltage} onChange={e => updateCycle(cycle.id, 'actualVoltage', e.target.value)} />
+                </div>
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-500 mb-1">Status</label>
+                <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.status} onChange={e => updateCycle(cycle.id, 'status', e.target.value)}>
+                  <option value="rest office">rest office</option>
+                  <option value="Rest Outside">Rest Outside</option>
+                  <option value="direct charge">direct charge</option>
+                  <option value="rest and charge">rest and charge</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                <div>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Start Time</label>
+                  <input type="time" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" value={cycle.startTime} onChange={e => updateCycle(cycle.id, 'startTime', e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">End Time</label>
+                  <input type="time" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" value={cycle.endTime} onChange={e => updateCycle(cycle.id, 'endTime', e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                <div>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Before Battery %</label>
+                  <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 20" value={cycle.beforeBatteryPercentage} onChange={e => updateCycle(cycle.id, 'beforeBatteryPercentage', e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Before Voltage</label>
+                  <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 48.0" value={cycle.beforeVoltage} onChange={e => updateCycle(cycle.id, 'beforeVoltage', e.target.value)} />
+                </div>
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-500 mb-1">Odometer (km)</label>
+                <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 1500" value={cycle.odometer} onChange={e => updateCycle(cycle.id, 'odometer', e.target.value)} />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-500 mb-1">Notes</label>
+                <textarea rows="2" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="Additional notes..." value={cycle.notes} onChange={e => updateCycle(cycle.id, 'notes', e.target.value)} />
               </div>
             </>
           ) : (taskType === 'battery_swap' || taskType === 'home_battery_swap') ? (
@@ -690,7 +782,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         </div>
       ))}
 
-      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'home_cycle' && (
+      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'home_cycle' && taskType !== 'battery_test' && (
         <button type="button" onClick={addCycle} className="w-full py-2 mb-6 bg-transparent border-none text-gray-500  text-sm flex items-center justify-center gap-1 hover:text-black transition">
           <Plus size={16} /> Add Another Cycle
         </button>

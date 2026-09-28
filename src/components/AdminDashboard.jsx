@@ -29,6 +29,7 @@ export default function AdminDashboard() {
   const [assignMsg, setAssignMsg] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [currentAssignments, setCurrentAssignments] = useState({});
+  const [hiddenForms, setHiddenForms] = useState({});
 
   const DEFAULT_OVERRIDES = {
     executive: '',
@@ -67,6 +68,13 @@ export default function AdminDashboard() {
           if (d.type.startsWith('station:')) manualSt[d.date_key] = d.type.split(':')[1];
           if (d.type.startsWith('overall:')) manualOv[d.date_key] = d.type.split(':')[1];
         });
+        const hiddenMap = {};
+        data.forEach(d => {
+          if (d.date_key === 'GLOBAL' && d.type.startsWith('setting:hide_')) {
+            hiddenMap[d.type.split('setting:hide_')[1]] = true;
+          }
+        });
+        setHiddenForms(hiddenMap);
         setPostponements({ station: st, overall: ov, manualStation: manualSt, manualOverall: manualOv });
       }
     } catch (e) {
@@ -109,6 +117,22 @@ export default function AdminDashboard() {
       fetchPostponements();
     } catch (e) {
       alert("Failed to override assignment: " + e.message);
+    }
+  };
+
+  const handleToggleFormVisibility = async (formKey) => {
+    try {
+      const isHidden = hiddenForms[formKey];
+      const settingKey = `setting:hide_${formKey}`;
+      await supabase.from('schedule_overrides').delete().eq('date_key', 'GLOBAL').eq('type', settingKey);
+      
+      if (!isHidden) {
+        await supabase.from('schedule_overrides').insert([{ date_key: 'GLOBAL', type: settingKey }]);
+      }
+      
+      setHiddenForms(prev => ({...prev, [formKey]: !isHidden}));
+    } catch (e) {
+      alert("Failed to toggle visibility");
     }
   };
 
@@ -814,6 +838,40 @@ export default function AdminDashboard() {
                     </table>
                   </div>
                 </div>
+
+                {/* Settings / Visibility UI */}
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mt-6">
+                  <h3 className="text-gray-900 text-lg font-medium mb-4">App Visibility Controls</h3>
+                  <p className="text-sm text-gray-500 mb-4">Toggle these switches to hide or show specific forms in the main menu for all staff.</p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {[
+                      { key: 'routine', label: 'Routine' },
+                      { key: 'pretask', label: 'Check List' },
+                      { key: 'overall', label: 'Overall' },
+                      { key: 'station', label: 'Station' },
+                      { key: 'maintenance', label: 'Maintenance' },
+                      { key: 'battery_swap', label: 'Standard Battery Swap' },
+                      { key: 'home_battery_swap', label: 'Home Battery Swap' },
+                      { key: 'home_cycle', label: 'Home Cycle' },
+                      { key: 'battery_test', label: 'Battery Test' }
+                    ].map(form => {
+                      const isHidden = hiddenForms[form.key];
+                      return (
+                        <div key={form.key} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
+                          <span className="font-medium text-gray-900 text-sm">{form.label}</span>
+                          <button 
+                            onClick={() => handleToggleFormVisibility(form.key)} 
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-sm ${isHidden ? 'bg-gray-200 text-gray-600 hover:bg-gray-300' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                          >
+                            {isHidden ? 'Hidden' : 'Visible'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
               </div>
             )}
 
