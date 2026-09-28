@@ -123,10 +123,27 @@ export default function AdminDashboard() {
     setAssignMsg("");
     
     try {
+      const { start, end } = getCurrentShiftWindow(selectedDate);
+      const { data: existingData } = await supabase
+        .from('assignments')
+        .select('cycles')
+        .eq('staff_name', assignStaff)
+        .gte('created_at', start)
+        .lt('created_at', end)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      let finalCycles = assignCycles;
+      if (existingData && existingData.length > 0) {
+        const existingArr = existingData[0].cycles.split(',').map(c => c.trim()).filter(Boolean);
+        const newArr = assignCycles.split(',').map(c => c.trim()).filter(Boolean);
+        finalCycles = [...new Set([...existingArr, ...newArr])].join(', ');
+      }
+
       // 1. Save to Supabase
       const { error } = await supabase.from('assignments').insert({
         staff_name: assignStaff,
-        cycles: assignCycles
+        cycles: finalCycles
       });
       if (error) throw error;
 
@@ -135,7 +152,7 @@ export default function AdminDashboard() {
       formData.append('data', JSON.stringify({
         action: 'assign',
         staffName: assignStaff,
-        cycles: assignCycles
+        cycles: finalCycles
       }));
       fetch(APPS_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: formData }).catch(() => {});
 
