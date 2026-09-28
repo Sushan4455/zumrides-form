@@ -122,10 +122,15 @@ function App() {
 
             {/* Section 2: Operations */}
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-3">
                 <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
-                  <ClipboardList size={22} /> <span className="text-sm">Battery Swap</span>
+                  <ClipboardList size={22} /> <span className="text-sm text-center">Standard Battery Swap</span>
                 </button>
+                <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_battery_swap'); }} className="min-h-16 rounded-2xl bg-blue-50 text-blue-700 font-semibold border-none transition hover:bg-blue-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
+                  <ClipboardList size={22} /> <span className="text-sm text-center">Home Battery Swap</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-1">
                 <button onClick={() => { if(!staffName) return setNameError(true); setSelectedTask('home_cycle'); }} className="min-h-16 rounded-2xl bg-indigo-50 text-indigo-700 font-semibold border-none transition hover:bg-indigo-100 active:scale-[0.98] flex flex-col items-center justify-center gap-1.5 p-3">
                   <ClipboardList size={22} /> <span className="text-sm">Home Cycle</span>
                 </button>

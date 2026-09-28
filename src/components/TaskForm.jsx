@@ -73,7 +73,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       } catch(e) {}
     }
 
-    if (taskType === 'battery_swap') {
+    if (taskType === 'battery_swap' || taskType === 'home_battery_swap') {
       setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     } else if (taskType === 'home_cycle') {
       setCycles([{ id: Date.now(), manualName: '', homeCycleId: '', batteryId: '', homeTime: '', inVoltage: '', inPercentage: '', outVoltage: '', outPercentage: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
@@ -278,6 +278,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     if (taskType === 'overall') { niceTaskName = 'Overall Checkup'; stationName = 'Dillibazar'; }
     if (taskType === 'maintenance') niceTaskName = 'Maintenance';
     if (taskType === 'home_cycle') niceTaskName = 'Home Cycle';
+    if (taskType === 'home_battery_swap') niceTaskName = 'Home Battery Swap';
 
     // Pre-process cycles to auto-flag missing parts as issues
     const processedCycles = cycles.map(c => {
@@ -308,6 +309,21 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             out_voltage: c.outVoltage || null,
             out_percentage: c.outPercentage || null,
             out_time: c.outTime
+          });
+        }
+      } else if (taskType === 'home_battery_swap') {
+        if (c.cycleId && c.batteryId) {
+          const currentTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+          batterySwapsToInsert.push({
+            staff_name: staffName,
+            cycle_id: c.cycleId.trim(),
+            battery_id: c.batteryId.trim(),
+            in_voltage: c.inVoltage || null,
+            in_percentage: c.inPercentage || null,
+            in_time: currentTimeStr,
+            out_voltage: c.outVoltage || null,
+            out_percentage: c.outPercentage || null,
+            out_time: currentTimeStr
           });
         }
       } else if (taskType === 'home_cycle') {
@@ -394,6 +410,16 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             mode: 'no-cors',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ homeCycles: homeCyclesToInsert })
+          }).catch(() => {});
+        }
+
+        if (batterySwapsToInsert.length > 0) {
+          const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydh5t8duV6t8MItonvFJ2nxYtSjyE-PApwKdf-PTaB52NNgtymi-7S4kNf29ao22oF/exec';
+          fetch(MAINTENANCE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batterySwaps: batterySwapsToInsert })
           }).catch(() => {});
         }
       };
@@ -501,7 +527,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
       {cycles.map((cycle, index) => (
         <div key={cycle.id} className="mb-6 bg-transparent relative">
-          {taskType !== 'battery_swap' && (
+          {taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && (
             <div className="flex justify-between items-center mb-2">
               <span className="font-semibold text-gray-900">
                 {cycles.length > 1 ? `Cycle #${index + 1}` : ''}
@@ -553,7 +579,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                 <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 249" value={cycle.homeCycleId || ''} onChange={e => updateCycle(cycle.id, 'homeCycleId', e.target.value)} />
               </div>
             </>
-          ) : taskType === 'battery_swap' ? (
+          ) : (taskType === 'battery_swap' || taskType === 'home_battery_swap') ? (
             <>
               <div className="mb-4">
                 <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
@@ -583,24 +609,28 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                   <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 100" value={cycle.outPercentage || ''} onChange={e => updateCycle(cycle.id, 'outPercentage', e.target.value)} />
                 </div>
               </div>
-              <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">IN Time</label>
-                  <button type="button" onClick={() => {
-                    updateCycle(cycle.id, 'inTime', new Date().toLocaleTimeString('en-US', { hour12: false }));
-                    updateCycle(cycle.id, 'inTimestamp', Date.now());
-                  }} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.inTime ? 'bg-gray-100 text-gray-900' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
-                    {cycle.inTime || 'Record IN'}
-                  </button>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-500 mb-1">OUT Time (Auto-saves)</label>
-                  <button type="button" disabled={isSubmitting || (cycle.inTimestamp && !isSwapReady)} onClick={() => handleRecordOutAndSave(cycle.id)} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.outTime ? 'bg-gray-100 text-gray-900' : 'bg-green-50 text-green-600 hover:bg-green-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                    {cycle.outTime || (isSubmitting ? 'Saving...' : 'Record OUT & Save')}
-                  </button>
-                </div>
-              </div>
-              <SwapTimer startTime={cycle.inTimestamp} isFinished={!!cycle.outTime} onReadyStateChange={setIsSwapReady} />
+              {taskType === 'battery_swap' && (
+                <>
+                  <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm text-gray-500 mb-1">IN Time</label>
+                      <button type="button" onClick={() => {
+                        updateCycle(cycle.id, 'inTime', new Date().toLocaleTimeString('en-US', { hour12: false }));
+                        updateCycle(cycle.id, 'inTimestamp', Date.now());
+                      }} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.inTime ? 'bg-gray-100 text-gray-900' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+                        {cycle.inTime || 'Record IN'}
+                      </button>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-500 mb-1">OUT Time (Auto-saves)</label>
+                      <button type="button" disabled={isSubmitting || (cycle.inTimestamp && !isSwapReady)} onClick={() => handleRecordOutAndSave(cycle.id)} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.outTime ? 'bg-gray-100 text-gray-900' : 'bg-green-50 text-green-600 hover:bg-green-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                        {cycle.outTime || (isSubmitting ? 'Saving...' : 'Record OUT & Save')}
+                      </button>
+                    </div>
+                  </div>
+                  <SwapTimer startTime={cycle.inTimestamp} isFinished={!!cycle.outTime} onReadyStateChange={setIsSwapReady} />
+                </>
+              )}
             </>
           ) : (
             <>
@@ -660,7 +690,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         </div>
       ))}
 
-      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_cycle' && (
+      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'home_cycle' && (
         <button type="button" onClick={addCycle} className="w-full py-2 mb-6 bg-transparent border-none text-gray-500  text-sm flex items-center justify-center gap-1 hover:text-black transition">
           <Plus size={16} /> Add Another Cycle
         </button>
@@ -671,7 +701,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           Back
         </button>
         <button type="button" onClick={() => {
-          if (taskType === 'battery_swap') {
+          if (taskType === 'battery_swap' || taskType === 'home_battery_swap') {
             setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
           } else {
             setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
@@ -683,7 +713,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         </button>
         {taskType !== 'battery_swap' && (
           <button type="submit" disabled={isSubmitting} className="px-8 py-2.5 bg-gray-900 text-white rounded-full text-sm font-medium hover:bg-black transition shadow-sm disabled:opacity-50">
-            {isSubmitting ? 'Saving...' : 'Save'}
+            {isSubmitting ? 'Saving...' : (taskType === 'home_battery_swap' ? 'Save Swap' : 'Save')}
           </button>
         )}
       </div>

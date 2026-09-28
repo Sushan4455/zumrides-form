@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, Database, Wand2, Loader2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
-import { refineTextWithAI } from '../utils/ai';
+import { refineTextWithAI, executeAICommand } from '../utils/ai';
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
 
@@ -20,6 +20,9 @@ export default function AdminDashboard() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [activeIssuesList, setActiveIssuesList] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  
+  const [aiCommand, setAiCommand] = useState('');
+  const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   
   const [assignStaff, setAssignStaff] = useState('');
   const [assignCycles, setAssignCycles] = useState('');
@@ -412,6 +415,21 @@ export default function AdminDashboard() {
       alert(err.message);
     } finally {
       setIsRefining(false);
+    }
+  };
+
+  const handleAICommand = async () => {
+    if (!aiCommand.trim()) return;
+    setIsProcessingCommand(true);
+    try {
+      const updatedOverrides = await executeAICommand(overrides, aiCommand);
+      setOverrides(prev => ({ ...prev, ...updatedOverrides }));
+      setAiCommand('');
+      setIsEditingNotes(true);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setIsProcessingCommand(false);
     }
   };
 
@@ -889,6 +907,32 @@ export default function AdminDashboard() {
               </div>
               
               <div className="flex flex-col gap-4">
+                {/* AI Command Box */}
+                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 relative mb-2">
+                  <label className="block text-sm font-semibold text-indigo-900 mb-2 flex items-center gap-2">
+                    <Wand2 size={16} className="text-indigo-600" /> AI Assistant
+                  </label>
+                  <p className="text-xs text-indigo-700 mb-3">Tell the AI what to add or change in the report, and it will update the configuration automatically.</p>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Add that cycle 200 had a flat tire..."
+                      className="flex-1 p-3 rounded-lg border-none outline-none text-sm text-gray-900 focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
+                      value={aiCommand}
+                      onChange={e => setAiCommand(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAICommand()}
+                      disabled={isProcessingCommand}
+                    />
+                    <button 
+                      onClick={handleAICommand}
+                      disabled={isProcessingCommand || !aiCommand.trim()}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isProcessingCommand ? <Loader2 size={16} className="animate-spin" /> : 'Apply'}
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm text-gray-500 mb-2">Select Section to Edit</label>
                   <select 

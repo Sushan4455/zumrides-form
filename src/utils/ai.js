@@ -42,3 +42,54 @@ Raw Notes:
     throw new Error('AI Error: ' + (error.message || 'Unknown error'));
   }
 };
+
+export const executeAICommand = async (currentOverrides, userCommand) => {
+  const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+  
+  if (!API_KEY) {
+    throw new Error('Gemini API key is missing. Please add VITE_GEMINI_API_KEY to your .env file AND restart your server (npm run dev).');
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+
+    const prompt = `
+You are an expert operational manager AI assistant. Your task is to update a shift report's configuration based on the user's command.
+The report has 9 sections. The user will ask you to add, remove, or modify something in the report.
+You must return the updated sections as a valid JSON object. ONLY return the JSON.
+
+Current Sections Data:
+${JSON.stringify(currentOverrides, null, 2)}
+
+User Command:
+"${userCommand}"
+
+CRITICAL RULES:
+1. Respond ONLY with a valid JSON object containing the exact keys: executive, routine, pretask, overall, station, individual, rider, mechanical, extra.
+2. Maintain a highly professional, formal tone.
+3. If the user asks to "add" something, append it professionally to the appropriate section.
+4. If a section doesn't need changes, leave its text exactly as it was.
+5. DO NOT include markdown code block formatting (like \`\`\`json) in your response, output just the raw JSON object string.
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let text = response.text().trim();
+    
+    // Clean up potential markdown formatting
+    if (text.startsWith('\`\`\`json')) {
+        text = text.substring(7);
+    } else if (text.startsWith('\`\`\`')) {
+        text = text.substring(3);
+    }
+    if (text.endsWith('\`\`\`')) {
+        text = text.substring(0, text.length - 3);
+    }
+    
+    return JSON.parse(text.trim());
+  } catch (error) {
+    console.error('Error processing AI command:', error);
+    throw new Error('AI Command Error: ' + (error.message || 'Unknown error'));
+  }
+};
