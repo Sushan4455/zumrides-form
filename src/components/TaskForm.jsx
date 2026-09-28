@@ -729,27 +729,42 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               <div className="mb-4">
                 <label className="block text-sm  text-gray-500 mb-1">Cycle ID</label>
                 {(taskType === 'pretask' || (taskType === 'routine' && assignedCycles.length > 0)) ? (
-                  <select required className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)}>
-                    <option value="" disabled>Select Cycle...</option>
-                    
-                    {assignedCycles.length > 0 && (
-                      <optgroup label="Assigned to You">
-                        {assignedCycles.map((cId, i) => (
-                          <option key={`assign-${i}`} value={cId}>{cId}</option>
-                        ))}
-                      </optgroup>
-                    )}
+                  <div className="flex flex-col gap-2">
+                    <select required className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.isManualId ? 'MANUAL' : cycle.cycleId} onChange={e => {
+                      if (e.target.value === 'MANUAL') {
+                        updateCycle(cycle.id, 'isManualId', true);
+                        updateCycle(cycle.id, 'cycleId', '');
+                      } else {
+                        updateCycle(cycle.id, 'isManualId', false);
+                        updateCycle(cycle.id, 'cycleId', e.target.value);
+                      }
+                    }}>
+                      <option value="" disabled>Select Cycle...</option>
+                      
+                      {assignedCycles.length > 0 && (
+                        <optgroup label="Assigned to You">
+                          {assignedCycles.map((cId, i) => (
+                            <option key={`assign-${i}`} value={cId}>{cId}</option>
+                          ))}
+                        </optgroup>
+                      )}
 
-                    {eligibleCycles.length > 0 && (
-                      <optgroup label={taskType === 'pretask' ? "From Previous Shifts" : "Your Pre-Task Cycles"}>
-                        {eligibleCycles.map((c, i) => (
-                          <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>
-                             {c.cycleId || c.cycle_id} {taskType === 'pretask' && `(via ${c.staffName || c.staff_name})`}
-                          </option>
-                        ))}
-                      </optgroup>
+                      {eligibleCycles.length > 0 && (
+                        <optgroup label={taskType === 'pretask' ? "From Previous Shifts" : "Your Pre-Task Cycles"}>
+                          {eligibleCycles.map((c, i) => (
+                            <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>
+                               {c.cycleId || c.cycle_id} {taskType === 'pretask' && `(via ${c.staffName || c.staff_name})`}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      
+                      <option value="MANUAL">+ Enter custom cycle ID...</option>
+                    </select>
+                    {cycle.isManualId && (
+                      <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 mt-1" placeholder="Enter Cycle ID" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} autoFocus />
                     )}
-                  </select>
+                  </div>
                 ) : (
                   <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. CYC-100" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
                 )}
