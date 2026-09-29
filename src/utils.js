@@ -1,7 +1,8 @@
-const OPERATIONS_ROTATION = ['Kabir', 'Laxman', 'Anish', 'Surya'];
+const STATION_ROTATION = ['Kabir', 'Laxman', 'Anish', 'Surya'];
+const OVERALL_ROTATION = ['Anish', 'Surya', 'Kabir', 'Laxman'];
 const ROTATION_ANCHOR = Date.UTC(2026, 8, 22);
-const STATION_ANCHOR_INDEX = 1; // 22 Sep 2026: Laxman
-const OVERALL_ANCHOR_INDEX = 2; // 22 Sep 2026: Anish
+const STATION_ANCHOR_INDEX = 1;
+const OVERALL_ANCHOR_INDEX = 2;
 
 const positiveModulo = (value, divisor) => ((value % divisor) + divisor) % divisor;
 
@@ -22,16 +23,11 @@ export function getDailyAssignments(date = new Date(), postponedDates = { statio
 
   // Fallback for dates before our scheduling anchor
   if (localDay < ROTATION_ANCHOR) {
-    return { station: null, overall: OPERATIONS_ROTATION[0], isWorkingDay: true };
-  }
-
-  // Initialize the queue for station assignments
-  let stationQueue = [];
-  for (let i = 0; i < OPERATIONS_ROTATION.length; i++) {
-    stationQueue.push(OPERATIONS_ROTATION[(STATION_ANCHOR_INDEX + i) % OPERATIONS_ROTATION.length]);
+    return { station: null, overall: OVERALL_ROTATION[0], isWorkingDay: true };
   }
 
   let overallIndex = OVERALL_ANCHOR_INDEX;
+  let stationIndex = STATION_ANCHOR_INDEX;
 
   let currentStation = null;
   let currentOverall = null;
@@ -54,42 +50,18 @@ export function getDailyAssignments(date = new Date(), postponedDates = { statio
       currentOverall = null;
       // We do not advance the overallIndex, effectively "pausing" the rotation for 1 day
     } else {
-      currentOverall = OPERATIONS_ROTATION[overallIndex];
-      overallIndex = (overallIndex + 1) % OPERATIONS_ROTATION.length;
+      currentOverall = OVERALL_ROTATION[overallIndex];
+      overallIndex = (overallIndex + 1) % OVERALL_ROTATION.length;
     }
 
     // --- STATION VISIT ---
     if (manualStation) {
       currentStation = manualStation;
-      daysSinceLastStation = 0; // Manual assignment counts as doing it
     } else if (isStationPostponed) {
       currentStation = null;
-      // We do not increment daysSinceLastStation, "pausing" the timer
     } else {
-      if (cursor !== ROTATION_ANCHOR) {
-        daysSinceLastStation++;
-      }
-
-      let isStationDay = false;
-      if (cursor === ROTATION_ANCHOR || daysSinceLastStation >= 2) {
-        isStationDay = true;
-      }
-
-      if (isStationDay) {
-        // If the preferred person clashes with the Overall visit, they lose their turn and go to the back
-        while (currentOverall && stationQueue[0] === currentOverall) {
-          let skippedPerson = stationQueue.shift();
-          stationQueue.push(skippedPerson);
-        }
-        
-        currentStation = stationQueue[0];
-        stationQueue.shift();
-        stationQueue.push(currentStation);
-        
-        daysSinceLastStation = 0;
-      } else {
-        currentStation = null;
-      }
+      currentStation = STATION_ROTATION[stationIndex];
+      stationIndex = (stationIndex + 1) % STATION_ROTATION.length;
     }
   }
 

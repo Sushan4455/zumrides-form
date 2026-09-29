@@ -15,7 +15,11 @@ const PARTS_LIST = [
   { name: 'Cleaning', color: '#06b6d4' },
   { name: 'Light/Horn', color: '#f97316' },
   { name: 'Pedals/BB', color: '#10b981' },
-  { name: 'Data Check', color: '#8b5cf6' }
+  { name: 'Data Check', color: '#8b5cf6' },
+  { name: 'Sensor', color: '#14b8a6' },
+  { name: 'Display', color: '#6366f1' },
+  { name: 'Nut', color: '#8b5cf6' },
+  { name: 'Chain', color: '#ef4444' }
 ];
 
 const SwapTimer = ({ startTime, isFinished, onReadyStateChange }) => {
@@ -728,7 +732,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             <>
               <div className="mb-4">
                 <label className="block text-sm  text-gray-500 mb-1">Cycle ID</label>
-                {(taskType === 'pretask' || (taskType === 'routine' && assignedCycles.length > 0)) ? (
+                {(taskType === 'routine' && assignedCycles.length > 0) ? (
                   <div className="flex flex-col gap-2">
                     <select required className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.isManualId ? 'MANUAL' : cycle.cycleId} onChange={e => {
                       if (e.target.value === 'MANUAL') {
@@ -750,10 +754,10 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                       )}
 
                       {eligibleCycles.length > 0 && (
-                        <optgroup label={taskType === 'pretask' ? "From Previous Shifts" : "Your Pre-Task Cycles"}>
+                        <optgroup label="Your Pre-Task Cycles">
                           {eligibleCycles.map((c, i) => (
                             <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>
-                               {c.cycleId || c.cycle_id} {taskType === 'pretask' && `(via ${c.staffName || c.staff_name})`}
+                               {c.cycleId || c.cycle_id}
                             </option>
                           ))}
                         </optgroup>
