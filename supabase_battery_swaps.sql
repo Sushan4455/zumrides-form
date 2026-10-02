@@ -5,11 +5,10 @@ CREATE TABLE battery_swaps (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     staff_name TEXT NOT NULL,
     cycle_id TEXT NOT NULL,
-    battery_id TEXT NOT NULL,
-    in_voltage NUMERIC,
+    in_battery_id TEXT,
     in_percentage NUMERIC,
     in_time TEXT,
-    out_voltage NUMERIC,
+    out_battery_id TEXT,
     out_percentage NUMERIC,
     out_time TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

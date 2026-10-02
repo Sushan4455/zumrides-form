@@ -55,7 +55,7 @@ const SwapTimer = ({ startTime, isFinished, onReadyStateChange }) => {
   );
 };
 export default function TaskForm({ taskType, staffName, onBack }) {
-  const [cycles, setCycles] = useState([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
+  const [cycles, setCycles] = useState([{ id: Date.now(), cycleId: '', inBatteryId: '', outBatteryId: '', inPercentage: '', inTime: null, inTimestamp: null, outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSwapReady, setIsSwapReady] = useState(false);
   
@@ -78,7 +78,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     }
 
     if (taskType === 'battery_swap' || taskType === 'home_battery_swap') {
-      setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
+      setCycles([{ id: Date.now(), cycleId: '', inBatteryId: '', outBatteryId: '', inPercentage: '', inTime: null, inTimestamp: null, outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     } else if (taskType === 'home_cycle') {
       setCycles([{ id: Date.now(), manualName: '', homeCycleId: '', batteryId: '', homeTime: '', inVoltage: '', inPercentage: '', outVoltage: '', outPercentage: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
     } else if (taskType === 'battery_test') {
@@ -217,8 +217,8 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     const outTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
     const c = cycles.find(cyc => cyc.id === cycleId);
     
-    if (!c.cycleId || !c.batteryId) {
-       setSaveError("Please enter Cycle ID and Battery ID before recording OUT.");
+    if (!c.cycleId || !c.inBatteryId || !c.outBatteryId) {
+       setSaveError("Please enter Cycle ID and IN and OUT Battery IDs before recording OUT.");
        return;
     }
     if (!c.inTime || !c.inTimestamp) {
@@ -240,11 +240,10 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       const batterySwapsToInsert = [{
           staff_name: staffName,
           cycle_id: c.cycleId.trim(),
-          battery_id: c.batteryId.trim(),
-          in_voltage: c.inVoltage || null,
+          in_battery_id: c.inBatteryId ? c.inBatteryId.trim() : null,
           in_percentage: c.inPercentage || null,
           in_time: c.inTime,
-          out_voltage: c.outVoltage || null,
+          out_battery_id: c.outBatteryId ? c.outBatteryId.trim() : null,
           out_percentage: c.outPercentage || null,
           out_time: outTimeStr
       }];
@@ -259,7 +258,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       });
       setSaveMsg('✅ Battery Swap Saved!');
       setTimeout(() => {
-        setCycles([{ id: Date.now(), cycleId: c.cycleId, batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
+        setCycles([{ id: Date.now(), cycleId: c.cycleId, inBatteryId: '', inPercentage: '', inTime: null, inTimestamp: null, outBatteryId: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
         setSaveMsg('');
       }, 2000);
       
@@ -280,7 +279,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     
     if (taskType === 'pretask') niceTaskName = 'Pre-Task Check';
     if (taskType === 'routine') niceTaskName = 'Routine Checkup';
-    if (taskType === 'station') { niceTaskName = 'Station Visit'; stationName = 'Lazimpat'; }
+
     if (taskType === 'overall') { niceTaskName = 'Overall Checkup'; stationName = 'Dillibazar'; }
     if (taskType === 'maintenance') niceTaskName = 'Maintenance';
     if (taskType === 'home_cycle') niceTaskName = 'Home Cycle';
@@ -306,30 +305,28 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
     processedCycles.forEach(c => {
       if (taskType === 'battery_swap') {
-        if (c.cycleId && c.batteryId && c.outTime) {
+        if (c.cycleId && c.outTime) {
           batterySwapsToInsert.push({
             staff_name: staffName,
             cycle_id: c.cycleId.trim(),
-            battery_id: c.batteryId.trim(),
-            in_voltage: c.inVoltage || null,
+            in_battery_id: c.inBatteryId ? c.inBatteryId.trim() : null,
             in_percentage: c.inPercentage || null,
             in_time: c.inTime,
-            out_voltage: c.outVoltage || null,
+            out_battery_id: c.outBatteryId ? c.outBatteryId.trim() : null,
             out_percentage: c.outPercentage || null,
             out_time: c.outTime
           });
         }
       } else if (taskType === 'home_battery_swap') {
-        if (c.cycleId && c.batteryId) {
+        if (c.cycleId && (c.inBatteryId || c.outBatteryId)) {
           const currentTimeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
           batterySwapsToInsert.push({
             staff_name: staffName,
             cycle_id: c.cycleId.trim(),
-            battery_id: c.batteryId.trim(),
-            in_voltage: c.inVoltage || null,
+            in_battery_id: c.inBatteryId ? c.inBatteryId.trim() : null,
             in_percentage: c.inPercentage || null,
             in_time: currentTimeStr,
-            out_voltage: c.outVoltage || null,
+            out_battery_id: c.outBatteryId ? c.outBatteryId.trim() : null,
             out_percentage: c.outPercentage || null,
             out_time: currentTimeStr
           });
@@ -559,10 +556,23 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     );
   };
 
+  const taskTitles = {
+    routine: 'Routine',
+    pretask: 'Checklist',
+    overall: 'Overall',
+
+    maintenance: 'Maintenance',
+    battery_swap: 'Standard Battery Swap',
+    home_battery_swap: 'Battery Swap',
+    home_cycle: 'Home Cycle',
+    battery_test: 'Battery Test'
+  };
+  const displayTitle = taskTitles[taskType] || taskType.replace(/_/g, ' ');
+
   return (
     <form onSubmit={handleSubmit} className="w-full relative">
       <div className="mb-6">
-        <h2 className="text-2xl  text-gray-900 capitalize">{taskType} Form</h2>
+        <h2 className="text-2xl  text-gray-900 capitalize">{displayTitle} Form</h2>
         <p className="text-gray-500  mt-1">Staff: {staffName || 'Not Selected'}</p>
       </div>
 
@@ -686,14 +696,10 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                 <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
                 <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. CYC-100" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
               </div>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Battery ID</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
-              </div>
               <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
                 <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Voltage</label>
-                  <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 52.5" value={cycle.inVoltage || ''} onChange={e => updateCycle(cycle.id, 'inVoltage', e.target.value)} />
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Battery ID</label>
+                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.inBatteryId || ''} onChange={e => updateCycle(cycle.id, 'inBatteryId', e.target.value)} />
                 </div>
                 <div>
                   <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Percentage</label>
@@ -702,8 +708,8 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               </div>
               <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
                 <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Voltage</label>
-                  <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 58.2" value={cycle.outVoltage || ''} onChange={e => updateCycle(cycle.id, 'outVoltage', e.target.value)} />
+                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Battery ID</label>
+                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-30" value={cycle.outBatteryId || ''} onChange={e => updateCycle(cycle.id, 'outBatteryId', e.target.value)} />
                 </div>
                 <div>
                   <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Percentage</label>
