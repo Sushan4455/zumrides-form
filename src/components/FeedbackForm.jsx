@@ -43,12 +43,13 @@ export default function FeedbackForm({ staffName, onBack }) {
         }]
       };
       
-      fetch(SCRIPT_URL, {
+      const formData = new FormData();
+      formData.append('data', JSON.stringify(payload));
+      await fetch(SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).catch(err => console.error('Failed to save to Google Sheets:', err));
+        body: formData
+      });
 
       setCycleId('');
       setFeedback('');

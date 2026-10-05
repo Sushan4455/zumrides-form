@@ -1,124 +1,273 @@
-function doPost(e) {
+var ZUM_OPERATIONS_SPREADSHEET_ID = "1uWlRhJqAtbAq4ktBANVIobyRMOCyt6oETVJXYYH2W_U";
+var ALL_CYCLES_SPREADSHEET_ID = "104RGZClQzvy8zT_-Aayrs89nit_z9DvvCN3ap9mGl88";
+var TABLE_START_ROW = 7;
+
+function jsonResponse(value) {
+  return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function readPayload(e) {
+  var raw = e && e.parameter ? e.parameter.data : "";
+  if (!raw && e && e.postData && e.postData.contents) raw = e.postData.contents;
+  if (!raw) throw new Error("Missing request data");
+  return JSON.parse(raw);
+}
+
+function normalizeCycleId(value) {
+  return String(value === null || value === undefined ? "" : value).trim();
+}
+
+function getOrCreateSheet(spreadsheet, name, headers) {
+  var sheet = spreadsheet.getSheetByName(name);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(name);
+    sheet.appendRow(headers);
+  }
+  return sheet;
+}
+
+function findCycleRows(sheet, cycleColumn, startRow, cycleId) {
+  var normalizedId = normalizeCycleId(cycleId);
+  var lastRow = sheet.getLastRow();
+  if (!normalizedId || lastRow < startRow) return [];
+  var values = sheet.getRange(startRow, cycleColumn, lastRow - startRow + 1, 1).getDisplayValues();
+  var matches = [];
+  values.forEach(function(row, index) {
+    if (normalizeCycleId(row[0]) === normalizedId) matches.push(startRow + index);
+  });
+  return matches;
+}
+
+function lastCycleRow(sheet, cycleColumn, startRow) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < startRow) return startRow - 1;
+  var values = sheet.getRange(startRow, cycleColumn, lastRow - startRow + 1, 1).getDisplayValues();
+  for (var index = values.length - 1; index >= 0; index--) {
+    if (normalizeCycleId(values[index][0])) return startRow + index;
+  }
+  return startRow - 1;
+}
+
+function renumberTable(sheet, issueColumn, cycleColumn, startRow) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < startRow) return;
+  var cycleValues = sheet.getRange(startRow, cycleColumn, lastRow - startRow + 1, 1).getDisplayValues();
+  var number = 1;
+  cycleValues.forEach(function(row, index) {
+    if (normalizeCycleId(row[0])) {
+      sheet.getRange(startRow + index, issueColumn).setValue(number++);
+    }
+  });
+}
+
+function deleteTableCells(sheet, row, startColumn, width) {
+  sheet.getRange(row, startColumn, 1, width).deleteCells(SpreadsheetApp.Dimension.ROWS);
+}
+
+function removeDuplicateRows(sheet, rows, startColumn, width) {
+  if (rows.length < 2) return rows.length ? rows[0] : null;
+  for (var index = rows.length - 1; index >= 1; index--) {
+    deleteTableCells(sheet, rows[index], startColumn, width);
+  }
+  return rows[0];
+}
+
+function prepareAppendRow(sheet, startColumn, width, cycleColumn, startRow) {
+  var targetRow = Math.max(startRow, lastCycleRow(sheet, cycleColumn, startRow) + 1);
+  var occupied = sheet.getRange(targetRow, startColumn, 1, width).getDisplayValues()[0].some(function(value) { return value !== ""; });
+  if (occupied) sheet.getRange(targetRow, startColumn, 1, width).insertCells(SpreadsheetApp.Dimension.ROWS);
+  if (targetRow > startRow) {
+    sheet.getRange(targetRow - 1, startColumn, 1, width)
+      .copyTo(sheet.getRange(targetRow, startColumn), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  }
+  return targetRow;
+}
+
+function pendingRecordFromNewSheet(fleetSheet, cycleId) {
+  if (!fleetSheet) return null;
+  var rows = findCycleRows(fleetSheet, 3, TABLE_START_ROW, cycleId);
+  if (!rows.length) return null;
+  var values = fleetSheet.getRange(rows[0], 2, 1, 6).getDisplayValues()[0];
+  return { row: rows[0], category: values[2] || "", issue: values[3] || "" };
+}
+
+function removeNewPending(fleetSheet, cycleId) {
+  if (!fleetSheet) return null;
+  var pending = pendingRecordFromNewSheet(fleetSheet, cycleId);
+  var rows = findCycleRows(fleetSheet, 3, TABLE_START_ROW, cycleId);
+  for (var index = rows.length - 1; index >= 0; index--) deleteTableCells(fleetSheet, rows[index], 2, 6);
+  renumberTable(fleetSheet, 2, 3, TABLE_START_ROW);
+  return pending;
+}
+
+function upsertNewPending(fleetSheet, record) {
+  if (!fleetSheet) return;
+  var cycleId = normalizeCycleId(record.cycleId || record.cycle_id);
+  if (!cycleId) return;
+
+  var repairedRows = findCycleRows(fleetSheet, 10, TABLE_START_ROW, cycleId);
+  for (var repairedIndex = repairedRows.length - 1; repairedIndex >= 0; repairedIndex--) {
+    deleteTableCells(fleetSheet, repairedRows[repairedIndex], 9, 6);
+  }
+  renumberTable(fleetSheet, 9, 10, TABLE_START_ROW);
+
+  var pendingRows = findCycleRows(fleetSheet, 3, TABLE_START_ROW, cycleId);
+  var row = removeDuplicateRows(fleetSheet, pendingRows, 2, 6);
+  if (!row) row = prepareAppendRow(fleetSheet, 2, 6, 3, TABLE_START_ROW);
+  var existingIssueNumber = fleetSheet.getRange(row, 2).getValue();
+  fleetSheet.getRange(row, 2, 1, 6).setValues([[
+    existingIssueNumber || 1,
+    cycleId,
+    record.defectCategory || record.category || "Feedback",
+    record.reportedIssue || record.issue || record.feedback || "",
+    record.fixDescription || "Pending Workshop Repair",
+    "Pending"
+  ]]);
+  renumberTable(fleetSheet, 2, 3, TABLE_START_ROW);
+}
+
+function upsertNewRepaired(fleetSheet, record, pending) {
+  if (!fleetSheet) return;
+  var cycleId = normalizeCycleId(record.cycleId || record.cycle_id);
+  if (!cycleId) return;
+  var rows = findCycleRows(fleetSheet, 10, TABLE_START_ROW, cycleId);
+  var row = removeDuplicateRows(fleetSheet, rows, 9, 6);
+  if (!row) row = prepareAppendRow(fleetSheet, 9, 6, 10, TABLE_START_ROW);
+  var existingIssueNumber = fleetSheet.getRange(row, 9).getValue();
+  fleetSheet.getRange(row, 9, 1, 6).setValues([[
+    existingIssueNumber || 1,
+    cycleId,
+    record.defectCategory || record.category || (pending && pending.category) || "",
+    record.reportedIssue || record.issue || (pending && pending.issue) || "",
+    record.fixDescription || "",
+    "Repaired"
+  ]]);
+  renumberTable(fleetSheet, 9, 10, TABLE_START_ROW);
+}
+
+function upsertMaintenanceLog(sheet, record) {
+  var cycleId = normalizeCycleId(record.cycleId || record.cycle_id);
+  var rows = findCycleRows(sheet, 3, 2, cycleId);
+  var row = rows.length ? rows[0] : sheet.getLastRow() + 1;
+  for (var index = rows.length - 1; index >= 1; index--) sheet.deleteRow(rows[index]);
+  var timestamp = record.timestamp ? new Date(record.timestamp) : new Date();
+  if (isNaN(timestamp.getTime())) timestamp = new Date();
+  sheet.getRange(row, 1, 1, 5).setValues([[
+    timestamp,
+    record.staffName || record.staff_name || "",
+    cycleId,
+    record.fixDescription || "",
+    "Repaired"
+  ]]);
+}
+
+function upsertOldIssue(sheet, record) {
+  var cycleId = normalizeCycleId(record.cycleId || record.cycle_id);
+  var rows = findCycleRows(sheet, 4, TABLE_START_ROW, cycleId);
+  var row = removeDuplicateRows(sheet, rows, 2, 6);
+  if (!row) row = prepareAppendRow(sheet, 2, 6, 4, TABLE_START_ROW);
+  var current = sheet.getRange(row, 2, 1, 6).getValues()[0];
+  sheet.getRange(row, 2, 1, 6).setValues([[
+    current[0] || 1,
+    current[1] || "",
+    cycleId,
+    record.defectCategory || record.category || "Feedback",
+    record.reportedIssue || record.issue || record.feedback || "",
+    "Pending"
+  ]]);
+  renumberTable(sheet, 2, 4, TABLE_START_ROW);
+}
+
+function markOldIssueRepaired(sheet, cycleId) {
+  var rows = findCycleRows(sheet, 4, TABLE_START_ROW, cycleId);
+  rows.forEach(function(row) { sheet.getRange(row, 7).setValue("Repaired"); });
+}
+
+function upsertOldRepaired(sheet, record, pending) {
+  var cycleId = normalizeCycleId(record.cycleId || record.cycle_id);
+  var rows = findCycleRows(sheet, 2, 2, cycleId);
+  var row = rows.length ? rows[0] : sheet.getLastRow() + 1;
+  for (var index = rows.length - 1; index >= 1; index--) sheet.deleteRow(rows[index]);
+  var issueText = record.defectCategory || record.category || (pending && pending.category) || "";
+  var reportedIssue = record.reportedIssue || record.issue || (pending && pending.issue) || "";
+  if (reportedIssue) issueText += (issueText ? " (" : "") + reportedIssue + (issueText ? ")" : "");
+  sheet.getRange(row, 1, 1, 6).setValues([[
+    row - 1,
+    cycleId,
+    issueText,
+    record.fixDescription || "",
+    record.odometer || "",
+    "Repaired"
+  ]]);
+}
+
+function doGet(e) {
   try {
-    // 104RGZClQzvy8zT_-Aayrs89nit_z9DvvCN3ap9mGl88 is the Maintenance Spreadsheet
-    var ss = SpreadsheetApp.openById("104RGZClQzvy8zT_-Aayrs89nit_z9DvvCN3ap9mGl88");
-    // 13ZS1Xw2JnlloFIOLs-ZlWkGfTUDUB-Kbu3n-3GhqK8Y is the Zum Operations Spreadsheet
-    var zumSs = SpreadsheetApp.openById("13ZS1Xw2JnlloFIOLs-ZlWkGfTUDUB-Kbu3n-3GhqK8Y");
-    var fleetSheet = zumSs.getSheetByName("Fleet Issue and Repair");
-
-    var payload = JSON.parse(e.parameter.data);
-    var records = Array.isArray(payload) ? payload : payload.records;
-    
-    // Helper to find the true bottom row of a specific table range
-    function getTableBottomRow(sheet, startCol, endCol) {
-      if (!sheet) return 6;
-      var data = sheet.getRange(1, startCol, sheet.getMaxRows(), endCol - startCol + 1).getValues();
-      for (var i = data.length - 1; i >= 0; i--) {
-        var hasData = data[i].some(function(cell) { return cell !== ""; });
-        if (hasData) {
-          return i + 1;
-        }
-      }
-      return 6; // Default to row 6 if empty
-    }
-
-    // Helper to append a row to a specific table, moving the Totals row down if present
-    function appendToTable(sheet, startCol, endCol, newValues) {
-      if (!sheet) return;
-      var bottomRow = getTableBottomRow(sheet, startCol, endCol);
-      var bottomRowRange = sheet.getRange(bottomRow, startCol, 1, endCol - startCol + 1);
-      var bottomRowValues = bottomRowRange.getValues()[0];
-      
-      var isTotalsRow = bottomRowValues.some(function(val) {
-        return typeof val === 'string' && val.toLowerCase().indexOf('total') > -1;
-      });
-      
-      var targetRow;
-      if (isTotalsRow) {
-        targetRow = bottomRow;
-        // Move the totals row down by 1
-        bottomRowRange.moveTo(sheet.getRange(bottomRow + 1, startCol));
-        
-        // Copy formatting from the row above to the new target row
-        if (targetRow > 7) {
-          var prevRowRange = sheet.getRange(targetRow - 1, startCol, 1, endCol - startCol + 1);
-          prevRowRange.copyTo(sheet.getRange(targetRow, startCol), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-        }
-      } else {
-        targetRow = bottomRow + 1;
-      }
-      
-      // Calculate Issue #
-      var issueNum = Math.max(1, targetRow - 6);
-      newValues[0] = issueNum; // ensure the first value is the correct Issue #
-      
-      sheet.getRange(targetRow, startCol, 1, endCol - startCol + 1).setValues([newValues]);
-    }
-    
-    records.forEach(function(record) {
-      var defectCat = record.defectCategory || record.category || '';
-      var reportedIssue = record.reportedIssue || record.issue || '';
-      var cycleIdStr = record.cycleId ? record.cycleId.toString().trim() : '';
-
-      // If the request specifies sheetTarget as 'issues', send it to 'Cycle Issues'
-      if (record.sheetTarget === 'issues') {
-        var issuesSheet = ss.getSheetByName("Cycle Issues");
-        if (!issuesSheet) {
-          issuesSheet = ss.insertSheet("Cycle Issues");
-          issuesSheet.appendRow(["Timestamp", "Staff Name", "Cycle ID", "Defect Category / Issue", "Status"]);
-        }
-        issuesSheet.appendRow([
-          record.timestamp,
-          record.staffName,
-          cycleIdStr,
-          reportedIssue,
-          record.status || 'Pending'
-        ]);
-
-        // Also update Fleet Issue and Repair sheet (Columns B to G -> 2 to 7)
-        if (fleetSheet) {
-          appendToTable(fleetSheet, 2, 7, [
-            "", // Placeholder for Issue #
-            cycleIdStr,
-            defectCat,
-            reportedIssue,
-            record.fixDescription || 'Pending Workshop Repair',
-            record.status || 'Pending'
-          ]);
-        }
-      } 
-      // Else, send it to 'Repaired Cycles'
-      else {
-        var repairSheet = ss.getSheetByName("Repaired Cycles");
-        if (!repairSheet) {
-          repairSheet = ss.insertSheet("Repaired Cycles");
-          repairSheet.appendRow(["Timestamp", "Cycle ID", "Staff Name", "Repair Action Taken", "Odometer", "Status"]);
-        }
-        repairSheet.appendRow([
-          record.timestamp,
-          cycleIdStr,
-          record.staffName,
-          record.fixDescription,
-          record.odometer || '',
-          record.status || 'Repaired'
-        ]);
-
-        // Also update Fleet Issue and Repair sheet (Columns I to N -> 9 to 14)
-        if (fleetSheet) {
-          appendToTable(fleetSheet, 9, 14, [
-            "", // Placeholder for Issue #
-            cycleIdStr,
-            defectCat,
-            reportedIssue,
-            record.fixDescription || '',
-            record.status || 'Repaired'
-          ]);
-        }
-      }
+    if (!e || !e.parameter || e.parameter.action !== "getPendingIssues") return jsonResponse({ result: "ok" });
+    var newWorkbook = SpreadsheetApp.openById(ZUM_OPERATIONS_SPREADSHEET_ID);
+    var fleetSheet = newWorkbook.getSheetByName("Fleet Issue and Repair");
+    if (!fleetSheet || fleetSheet.getLastRow() < TABLE_START_ROW) return jsonResponse([]);
+    var rows = fleetSheet.getRange(TABLE_START_ROW, 2, fleetSheet.getLastRow() - TABLE_START_ROW + 1, 6).getDisplayValues();
+    var seen = {};
+    var pendingIssues = [];
+    rows.forEach(function(row) {
+      var cycleId = normalizeCycleId(row[1]);
+      if (!cycleId || seen[cycleId] || String(row[5]).toLowerCase() === "repaired") return;
+      seen[cycleId] = true;
+      pendingIssues.push({ cycle_id: cycleId, defect_category: row[2] || "", reported_issue: row[3] || "" });
     });
-    
-    return ContentService.createTextOutput(JSON.stringify({ 'result': 'success' })).setMimeType(ContentService.MimeType.JSON);
-  } catch(error) {
-    return ContentService.createTextOutput(JSON.stringify({ 'result': 'error', 'error': error.toString() })).setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse(pendingIssues);
+  } catch (error) {
+    return jsonResponse({ result: "error", error: error.toString() });
+  }
+}
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var payload = readPayload(e);
+    var newWorkbook = SpreadsheetApp.openById(ZUM_OPERATIONS_SPREADSHEET_ID);
+    var oldWorkbook = SpreadsheetApp.openById(ALL_CYCLES_SPREADSHEET_ID);
+    var fleetSheet = newWorkbook.getSheetByName("Fleet Issue and Repair");
+    var oldIssuesSheet = oldWorkbook.getSheetByName("All Cycle Issues");
+    var oldRepairedSheet = oldWorkbook.getSheetByName("Repaired Cycles");
+    var written = { feedback: 0, maintenance: 0, issues: 0 };
+
+    if (payload.feedback && Array.isArray(payload.feedback)) {
+      var feedbackSheet = getOrCreateSheet(newWorkbook, "Feedback", ["Sn", "Staff Name", "Cycle ID", "Feedback"]);
+      payload.feedback.forEach(function(record) {
+        feedbackSheet.appendRow([feedbackSheet.getLastRow(), record.staff_name || record.staffName || "", record.cycle_id || record.cycleId || "", record.feedback || ""]);
+        upsertNewPending(fleetSheet, record);
+        upsertOldIssue(oldIssuesSheet, record);
+        written.feedback++;
+      });
+    }
+
+    var records = Array.isArray(payload) ? payload : (payload.records || []);
+    records.forEach(function(record) {
+      var cycleId = normalizeCycleId(record.cycleId || record.cycle_id);
+      if (!cycleId) return;
+      if (record.sheetTarget === "issues") {
+        upsertNewPending(fleetSheet, record);
+        upsertOldIssue(oldIssuesSheet, record);
+        written.issues++;
+        return;
+      }
+
+      var pending = removeNewPending(fleetSheet, cycleId);
+      upsertNewRepaired(fleetSheet, record, pending);
+      var maintenanceSheet = getOrCreateSheet(newWorkbook, "Maintenance", ["Timestamp", "Staff Name", "Cycle ID", "Fix Description", "Status"]);
+      upsertMaintenanceLog(maintenanceSheet, record);
+      markOldIssueRepaired(oldIssuesSheet, cycleId);
+      upsertOldRepaired(oldRepairedSheet, record, pending);
+      written.maintenance++;
+    });
+
+    return jsonResponse({ result: "success", written: written });
+  } catch (error) {
+    return jsonResponse({ result: "error", error: error.toString() });
+  } finally {
+    lock.releaseLock();
   }
 }
