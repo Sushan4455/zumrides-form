@@ -101,38 +101,41 @@ function doPost(e) {
     var zumSs = SpreadsheetApp.openById("1uWlRhJqAtbAq4ktBANVIobyRMOCyt6oETVJXYYH2W_U");
     var fleetSheet = zumSs.getSheetByName("Fleet Issue and Repair");
 
-    function getTableBottomRow(sheetObj, startCol, endCol) {
-      if (!sheetObj) return 6;
-      var dataVals = sheetObj.getRange(1, startCol, sheetObj.getMaxRows(), endCol - startCol + 1).getValues();
-      for (var i = dataVals.length - 1; i >= 0; i--) {
-        var hasData = dataVals[i].some(function(cell) { return cell !== ""; });
-        if (hasData) {
-          return i + 1;
+    function getTableTargetInfo(sheetObj, startCol, endCol) {
+      if (!sheetObj) return { row: 7, isTotalsRow: false };
+      var dataVals = sheetObj.getRange(7, startCol, sheetObj.getMaxRows() - 6, endCol - startCol + 1).getValues();
+      for (var i = 0; i < dataVals.length; i++) {
+        var row = dataVals[i];
+        var isTotalsRow = row.some(function(val) { return typeof val === 'string' && val.toLowerCase().indexOf('total') > -1; });
+        var hasData = row.some(function(cell) { return cell !== ""; });
+        
+        if (isTotalsRow) {
+          return { row: i + 7, isTotalsRow: true };
+        }
+        if (!hasData) {
+          return { row: i + 7, isTotalsRow: false };
         }
       }
-      return 6;
+      return { row: 7, isTotalsRow: false };
     }
 
     function appendToTable(sheetObj, startCol, endCol, newValues) {
       if (!sheetObj) return;
-      var bottomRow = getTableBottomRow(sheetObj, startCol, endCol);
-      var bottomRowRange = sheetObj.getRange(bottomRow, startCol, 1, endCol - startCol + 1);
-      var bottomRowValues = bottomRowRange.getValues()[0];
+      var targetInfo = getTableTargetInfo(sheetObj, startCol, endCol);
+      var targetRow = targetInfo.row;
       
-      var isTotalsRow = bottomRowValues.some(function(val) {
-        return typeof val === 'string' && val.toLowerCase().indexOf('total') > -1;
-      });
-      
-      var targetRow;
-      if (isTotalsRow) {
-        targetRow = bottomRow;
-        bottomRowRange.moveTo(sheetObj.getRange(bottomRow + 1, startCol));
+      if (targetInfo.isTotalsRow) {
+        var bottomRowRange = sheetObj.getRange(targetRow, startCol, 1, endCol - startCol + 1);
+        bottomRowRange.moveTo(sheetObj.getRange(targetRow + 1, startCol));
         if (targetRow > 7) {
           var prevRowRange = sheetObj.getRange(targetRow - 1, startCol, 1, endCol - startCol + 1);
           prevRowRange.copyTo(sheetObj.getRange(targetRow, startCol), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
         }
       } else {
-        targetRow = bottomRow + 1;
+        if (targetRow > 7) {
+          var prevRowRange = sheetObj.getRange(targetRow - 1, startCol, 1, endCol - startCol + 1);
+          prevRowRange.copyTo(sheetObj.getRange(targetRow, startCol), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+        }
       }
       
       var issueNum = Math.max(1, targetRow - 6);
@@ -146,20 +149,25 @@ function doPost(e) {
       var startCol = 2; // B
       var endCol = 7;   // G
       
-      var bottomRow = getTableBottomRow(sheetObj, startCol, endCol);
-      var bottomRowRange = sheetObj.getRange(bottomRow, startCol, 1, endCol - startCol + 1);
-      var isTotalsRow = bottomRowRange.getValues()[0].some(function(val) {
-        return typeof val === 'string' && val.toLowerCase().indexOf('total') > -1;
-      });
+      var dataVals = sheetObj.getRange(7, startCol, sheetObj.getMaxRows() - 6, endCol - startCol + 1).getValues();
+      var dataEndRow = 6;
+      for (var i = 0; i < dataVals.length; i++) {
+        var row = dataVals[i];
+        var isTotalsRow = row.some(function(val) { return typeof val === 'string' && val.toLowerCase().indexOf('total') > -1; });
+        var hasData = row.some(function(cell) { return cell !== ""; });
+        
+        if (isTotalsRow || !hasData) {
+          break; 
+        }
+        dataEndRow = i + 7;
+      }
       
-      var lastDataRow = isTotalsRow ? bottomRow - 1 : bottomRow;
-      if (lastDataRow < 7) return null; 
+      if (dataEndRow < 7) return null; 
       
-      var tableData = sheetObj.getRange(7, startCol, lastDataRow - 7 + 1, endCol - startCol + 1).getValues();
+      var tableData = sheetObj.getRange(7, startCol, dataEndRow - 7 + 1, endCol - startCol + 1).getValues();
       var deletedAny = false;
       var foundRowData = null;
       
-      // Smart matching to treat "03" and "3" as the same cycle
       function isMatch(id1, id2) {
         var s1 = String(id1).trim().toLowerCase();
         var s2 = String(id2).trim().toLowerCase();
@@ -169,33 +177,33 @@ function doPost(e) {
       }
       
       for (var i = tableData.length - 1; i >= 0; i--) {
-        var rowCycleId = tableData[i][1]; // Column C
+        var rowCycleId = tableData[i][1]; 
         
         if (isMatch(rowCycleId, cycleId)) {
           var rowToDelete = 7 + i;
           
           if (!foundRowData) {
             foundRowData = {
-              defect_category: tableData[i][2], // Column D
-              reported_issue: tableData[i][3]   // Column E
+              defect_category: tableData[i][2], 
+              reported_issue: tableData[i][3]   
             };
           }
           
-          if (rowToDelete < bottomRow) {
-            var rangeToMove = sheetObj.getRange(rowToDelete + 1, startCol, bottomRow - rowToDelete, endCol - startCol + 1);
-            rangeToMove.moveTo(sheetObj.getRange(rowToDelete, startCol));
+          if (rowToDelete < dataEndRow) {
+            var dataBelow = sheetObj.getRange(rowToDelete + 1, startCol, dataEndRow - rowToDelete, endCol - startCol + 1).getValues();
+            sheetObj.getRange(rowToDelete, startCol, dataEndRow - rowToDelete, endCol - startCol + 1).setValues(dataBelow);
+            sheetObj.getRange(dataEndRow, startCol, 1, endCol - startCol + 1).clearContent();
           } else {
-            sheetObj.getRange(rowToDelete, startCol, 1, endCol - startCol + 1).clearContent().clearFormat();
+            sheetObj.getRange(rowToDelete, startCol, 1, endCol - startCol + 1).clearContent();
           }
           
           deletedAny = true;
-          bottomRow--;
-          lastDataRow--;
+          dataEndRow--;
         }
       }
       
-      if (deletedAny && lastDataRow >= 7) {
-        var numRows = lastDataRow - 7 + 1;
+      if (deletedAny && dataEndRow >= 7) {
+        var numRows = dataEndRow - 7 + 1;
         var issueNumbers = [];
         for (var j = 1; j <= numRows; j++) {
           issueNumbers.push([j]);
