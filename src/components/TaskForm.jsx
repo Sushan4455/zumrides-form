@@ -334,8 +334,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       } else if (taskType === 'home_cycle') {
         homeCyclesToInsert.push({
           manual_name: staffName,
-          home_cycle_id: c.homeCycleId || '',
-          old_battery_id: c.oldBatteryId || ''
+          home_cycle_id: c.homeCycleId || ''
         });
       } else if (taskType === 'maintenance') {
         if (c.cycleId && c.fixDescription) {
@@ -630,10 +629,6 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               <div className="mb-4">
                 <label className="block text-sm text-gray-500 mb-1">Home Cycle ID</label>
                 <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 249" value={cycle.homeCycleId || ''} onChange={e => updateCycle(cycle.id, 'homeCycleId', e.target.value)} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Old Battery ID</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-123" value={cycle.oldBatteryId || ''} onChange={e => updateCycle(cycle.id, 'oldBatteryId', e.target.value)} />
               </div>
             </>
           ) : taskType === 'battery_test' ? (

@@ -285,8 +285,15 @@ export default function AdminDashboard() {
           seenTasks.add(uniqueKey);
           
           if (row.task_type === 'Routine Checkup') {
-            if (!result.routine[row.staff_name]) result.routine[row.staff_name] = [];
-            result.routine[row.staff_name].push(row);
+            let assignedStaff = row.staff_name;
+            for (const [staff, cyclesStr] of Object.entries(latestAssignments)) {
+              if (cyclesStr.split(',').map(c => c.trim()).includes(row.cycle_id?.toString())) {
+                assignedStaff = staff;
+                break;
+              }
+            }
+            if (!result.routine[assignedStaff]) result.routine[assignedStaff] = [];
+            result.routine[assignedStaff].push(row);
           } else if (row.task_type === 'Pre-Task Check') {
             if (!result.pretask[row.staff_name]) result.pretask[row.staff_name] = [];
             result.pretask[row.staff_name].push(row);
@@ -352,6 +359,16 @@ export default function AdminDashboard() {
       fetchGlobal();
     }
   }, [activeTab, isAuthenticated]);
+
+  useEffect(() => {
+    if (isLiveEditMode) {
+      const savedHtml = localStorage.getItem(`liveEditHtml_${reportDateKey}`);
+      if (savedHtml) {
+        const el = document.getElementById('pdf-report-content');
+        if (el) el.innerHTML = savedHtml;
+      }
+    }
+  }, [isLiveEditMode, reportDateKey]);
 
   const fetchActiveIssues = async () => {
     const { start, end } = getCurrentShiftWindow(selectedDate);
@@ -1100,6 +1117,23 @@ export default function AdminDashboard() {
               style={{ color: '#000' }}
               contentEditable={isLiveEditMode}
               suppressContentEditableWarning={true}
+              onPaste={(e) => {
+                if (isLiveEditMode) {
+                  e.preventDefault();
+                  const text = e.clipboardData.getData('text/plain');
+                  document.execCommand('insertText', false, text);
+                }
+              }}
+              onInput={(e) => {
+                if (isLiveEditMode) {
+                  localStorage.setItem(`liveEditHtml_${reportDateKey}`, e.currentTarget.innerHTML);
+                }
+              }}
+              onBlur={(e) => {
+                if (isLiveEditMode) {
+                  localStorage.setItem(`liveEditHtml_${reportDateKey}`, e.currentTarget.innerHTML);
+                }
+              }}
             >
 
               {/* Header */}
