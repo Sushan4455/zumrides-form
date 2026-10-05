@@ -14,7 +14,12 @@ function readPayload(e) {
 }
 
 function normalizeCycleId(value) {
-  return String(value === null || value === undefined ? "" : value).trim();
+  var str = String(value === null || value === undefined ? "" : value).trim().toLowerCase();
+  // If the ID is numeric (like "03"), convert it to a standard number string (like "3")
+  if (str !== "" && !isNaN(str)) {
+    return String(Number(str));
+  }
+  return str;
 }
 
 function getOrCreateSheet(spreadsheet, name, headers) {
