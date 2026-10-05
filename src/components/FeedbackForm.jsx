@@ -45,11 +45,11 @@ export default function FeedbackForm({ staffName, onBack }) {
       
       const formData = new FormData();
       formData.append('data', JSON.stringify(payload));
-      await fetch(SCRIPT_URL, {
+      fetch(SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
         body: formData
-      });
+      }).catch(console.error);
 
       setCycleId('');
       setFeedback('');
