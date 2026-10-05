@@ -142,15 +142,28 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         setIsSyncing(false);
       }
 
-      // Always fetch known problem cycles for maintenance auto-fill
+      // Always fetch known problem cycles from Fleet Issue and Repair sheet for maintenance auto-fill
       if (taskType === 'maintenance') {
-        const { data: issuesData } = await supabase
-          .from('cycle_issues')
-          .select('cycle_id, defect_category, reported_issue');
-        if (issuesData) {
-          const map = {};
-          issuesData.forEach(i => { map[i.cycle_id] = i; });
-          setCycleIssues(map);
+        try {
+          const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydh5t8duV6t8MItonvFJ2nxYtSjyE-PApwKdf-PTaB52NNgtymi-7S4kNf29ao22oF/exec';
+          const response = await fetch(`${MAINTENANCE_SCRIPT_URL}?action=getPendingIssues`);
+          const issuesData = await response.json();
+          if (issuesData) {
+            const map = {};
+            issuesData.forEach(i => { map[i.cycle_id] = i; });
+            setCycleIssues(map);
+          }
+        } catch (error) {
+          console.error("Error fetching pending issues from sheet, falling back to Supabase:", error);
+          
+          const { data: issuesData } = await supabase
+            .from('cycle_issues')
+            .select('cycle_id, defect_category, reported_issue');
+          if (issuesData) {
+            const map = {};
+            issuesData.forEach(i => { map[i.cycle_id] = i; });
+            setCycleIssues(map);
+          }
         }
       }
     };
