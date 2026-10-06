@@ -6,8 +6,11 @@ CREATE TABLE IF NOT EXISTS public.offline_cycles (
   completed boolean NOT NULL DEFAULT false,
   completed_by text,
   completed_at timestamptz,
+  issue text,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.offline_cycles ADD COLUMN IF NOT EXISTS issue text;
 
 ALTER TABLE public.offline_cycles ENABLE ROW LEVEL SECURITY;
 
@@ -72,4 +75,3 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
-
