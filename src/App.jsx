@@ -167,9 +167,11 @@ function App() {
 
           {/* Section 3: Maintenance */}
             <div className="space-y-3">
-              <button onClick={() => { if (!staffName.trim()) return setNameError(true); setSelectedTask('offline_cycles'); }} className="w-full min-h-14 rounded-2xl bg-gray-900 px-5 py-4 text-white font-semibold border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2">
-                <WifiOff size={20} /> <span>Offline Cycles</span>
-              </button>
+              {!hiddenForms['offline_cycles'] && (
+                <button onClick={() => { if (!staffName.trim()) return setNameError(true); setSelectedTask('offline_cycles'); }} className="w-full min-h-14 rounded-2xl bg-gray-900 px-5 py-4 text-white font-semibold border-none transition hover:bg-black active:scale-[0.99] flex items-center justify-center gap-2">
+                  <WifiOff size={20} /> <span>Offline Cycles</span>
+                </button>
+              )}
               <button onClick={() => { if (!staffName.trim()) return setNameError(true); setSelectedTask('feedback'); }} className="w-full min-h-14 rounded-2xl bg-gray-100 px-5 py-4 text-gray-900 font-semibold border-none transition hover:bg-gray-200 active:scale-[0.99] flex items-center justify-center gap-2">
                 <MessageSquare size={20} /> <span>Cycle Feedback</span>
               </button>

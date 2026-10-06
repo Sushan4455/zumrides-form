@@ -1,46 +1,85 @@
 function doGet(e) {
   var mainSsId = "13ZS1Xw2JnlloFIOLs-ZlWkGfTUDUB-Kbu3n-3GhqK8Y";
   
-  // ==========================================
-  // 1. ADMIN SECRET ENDPOINT (For Python Script)
-  // ==========================================
-  if (e.parameter.secret === "Admin123") {
-    var maintenanceSsId = "104RGZClQzvy8zT_-Aayrs89nit_z9DvvCN3ap9mGl88";
-    var today = new Date();
+  function isCurrentShift(dateVal) {
+    if(!dateVal) return false;
+    var d = new Date(dateVal);
+    if(isNaN(d.getTime())) return false;
     
-    function isToday(dateVal) {
-      if(!dateVal || !(dateVal instanceof Date)) return false;
-      return dateVal.getDate() == today.getDate() && dateVal.getMonth() == today.getMonth() && dateVal.getFullYear() == today.getFullYear();
+    var now = new Date();
+    var shiftStart, shiftEnd;
+    
+    // If it is currently before 12:00 PM (Noon), the shift started yesterday at Noon
+    if (now.getHours() < 12) {
+      shiftStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0, 0);
+      shiftEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+    } 
+    // If it is currently after 12:00 PM (Noon), the shift started today at Noon
+    else {
+      shiftStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+      shiftEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12, 0, 0, 0);
     }
     
-    // Get Main Sheet Data
-    var mainSheet = SpreadsheetApp.openById(mainSsId).getSheets()[0];
-    var mainData = mainSheet.getDataRange().getValues();
-    var routineByStaff = {};
-    var overallStaff = "None";
-    var overallCycles = [];
-    var stationStaff = "None";
-    var stationCycles = [];
+    return d.getTime() >= shiftStart.getTime() && d.getTime() < shiftEnd.getTime();
+  }
+  
+  // ==========================================
+  // 1. ADMIN DASHBOARD ENDPOINT
+  // ==========================================
+  if (e && e.parameter && e.parameter.secret === "Admin123") {
+    var maintenanceSsId = "104RGZClQzvy8zT_-Aayrs89nit_z9DvvCN3ap9mGl88";
     
-    for (var i = 1; i < mainData.length; i++) {
-      var row = mainData[i];
-      if (isToday(row[0])) {
-        var task = row[1], cycle = row[2], cond = row[4], issue = row[5], parts = row[6], staff = row[7];
-        if (!routineByStaff[staff]) routineByStaff[staff] = [];
-        if (task === "Routine Checkup" || task === "Pre-Task Check") routineByStaff[staff].push(cycle);
-        else if (task === "Overall Checkup") { overallStaff = staff; overallCycles.push(cycle); }
-        else if (task === "Station Visit") { stationStaff = staff; stationCycles.push(cycle); }
+    var mainSs = SpreadsheetApp.openById(mainSsId);
+    
+    var routineByStaff = {};
+    var overallStaff = "None", overallCycles = [];
+    var stationStaff = "None", stationCycles = [];
+    
+    // Read from Routine Checkup tab
+    var routineSheet = mainSs.getSheetByName("Routine Checkup");
+    if (routineSheet) {
+      var routineData = routineSheet.getDataRange().getValues();
+      for (var i = 1; i < routineData.length; i++) {
+        var row = routineData[i];
+        if (isCurrentShift(row[0])) {
+          var task = row[1], cycle = row[2], staff = row[7];
+          
+          if (task === "Routine Checkup" || task === "Pre-Task Check" || task === "Routine") {
+            if (!routineByStaff[staff]) routineByStaff[staff] = [];
+            routineByStaff[staff].push(cycle);
+          }
+          else if (task === "Station Visit") { 
+            stationStaff = staff; 
+            stationCycles.push(cycle); 
+          }
+        }
       }
     }
     
-    // Get Maintenance Data
+    // Read from Overall Checkup tab
+    var overallSheet = mainSs.getSheetByName("Overall Checkup");
+    if (overallSheet) {
+      var overallData = overallSheet.getDataRange().getValues();
+      for (var i = 1; i < overallData.length; i++) {
+        var row = overallData[i];
+        if (isCurrentShift(row[0])) {
+          var task = row[1], cycle = row[2], staff = row[7];
+          if (task === "Overall Checkup") { 
+            overallStaff = staff; 
+            overallCycles.push(cycle); 
+          }
+        }
+      }
+    }
+    
     var maintSheet = SpreadsheetApp.openById(maintenanceSsId).getSheetByName("Repaired Cycles");
-    var maintData = maintSheet.getDataRange().getValues();
+    var maintData = [];
+    if (maintSheet) maintData = maintSheet.getDataRange().getValues();
+    
     var maintenanceLogs = [];
     for (var i = 1; i < maintData.length; i++) {
-      var row = maintData[i];
-      if (isToday(row[6])) { // Column G timestamp
-         maintenanceLogs.push({ cycleId: row[1], fix: row[3] });
+      if (isCurrentShift(maintData[i][6])) { 
+         maintenanceLogs.push({ cycleId: maintData[i][1], fix: maintData[i][3] });
       }
     }
     
@@ -55,34 +94,97 @@ function doGet(e) {
   }
   
   // ==========================================
-  // 2. REGULAR PRE-TASK ENDPOINT (For React App)
+  // 2. REGULAR ENDPOINT (Pre-Task & Assignments)
   // ==========================================
   var ss = SpreadsheetApp.openById(mainSsId);
-  var sheet = ss.getSheets()[0];
-  var data = sheet.getDataRange().getValues();
   
   var recentCycles = [];
   var now = new Date();
   
-  for (var i = data.length - 1; i > 0; i--) {
-    var row = data[i];
-    var timestamp = new Date(row[0]);
-    var taskType = row[1];
-    var cycleId = row[2];
-    var staffName = row[7];
-    
-    if (taskType === 'Routine Checkup' || taskType === 'Routine' || taskType === 'Pre-Task Check') {
-      var diffHours = Math.abs(now - timestamp) / 36e5;
-      if (diffHours <= 48 && cycleId) {
-        recentCycles.push({ cycleId: cycleId.toString().trim(), staffName: staffName ? staffName.toString().trim() : 'Unknown' });
+  var routineSheet = ss.getSheetByName("Routine Checkup");
+  if (routineSheet) {
+    var data = routineSheet.getDataRange().getValues();
+    // Fetch recent routine checks
+    for (var i = data.length - 1; i > 0; i--) {
+      var row = data[i];
+      if (row[1] === 'Routine Checkup' || row[1] === 'Routine' || row[1] === 'Pre-Task Check') {
+        if (Math.abs(now - new Date(row[0])) / 36e5 <= 48 && row[2]) {
+          recentCycles.push({ cycleId: row[2].toString().trim(), staffName: row[7] ? row[7].toString().trim() : 'Unknown' });
+        }
       }
     }
   }
+
+  // Fetch today's Assignments (Current Shift)
+  var assignSheet = ss.getSheetByName("Assignments");
+  var assignments = {};
+  if (assignSheet) {
+     var aData = assignSheet.getDataRange().getValues();
+     for (var j = aData.length - 1; j > 0; j--) {
+        var aRow = aData[j];
+        if (isCurrentShift(aRow[0])) {
+           var aStaff = aRow[1];
+           var aCycles = aRow[2];
+           if (!assignments[aStaff]) {
+               assignments[aStaff] = aCycles.toString().split(',').map(function(c) { return c.trim(); }).filter(function(c) { return c; });
+           }
+        }
+     }
+  }
   
-  var result = { data: recentCycles };
-  if (e.parameter.callback) {
-    return ContentService.createTextOutput(e.parameter.callback + "(" + JSON.stringify(result) + ")").setMimeType(ContentService.MimeType.JAVASCRIPT);
-  } else {
-    return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+  var result = { data: recentCycles, assignments: assignments };
+  if (e && e.parameter && e.parameter.callback) return ContentService.createTextOutput(e.parameter.callback + "(" + JSON.stringify(result) + ")").setMimeType(ContentService.MimeType.JAVASCRIPT);
+  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.openById("13ZS1Xw2JnlloFIOLs-ZlWkGfTUDUB-Kbu3n-3GhqK8Y");
+    var payload = JSON.parse(e.parameter.data);
+    
+    // Check if this is an Admin Assignment POST
+    if (payload.action === "assign") {
+       var assignSheet = ss.getSheetByName("Assignments");
+       if (!assignSheet) {
+         assignSheet = ss.insertSheet("Assignments");
+         assignSheet.appendRow(["Timestamp", "Staff Name", "Assigned Cycles"]);
+       }
+       assignSheet.appendRow([new Date(), payload.staffName, payload.cycles]);
+       return ContentService.createTextOutput(JSON.stringify({ 'result': 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Otherwise, handle regular form records
+    var records = Array.isArray(payload) ? payload : payload.records;
+    
+    records.forEach(function(record) {
+      // Direct Overall Checkup to its tab, everything else (Routine, Pre-Task, Station Visit) goes to Routine Checkup
+      var sheetName = (record.taskType === "Overall Checkup") ? "Overall Checkup" : "Routine Checkup";
+      var sheet = ss.getSheetByName(sheetName);
+      
+      // Create sheet with headers if it doesn't exist yet
+      if (!sheet) {
+        sheet = ss.insertSheet(sheetName);
+        sheet.appendRow([
+          "Timestamp", "Task Type", "Cycle ID", "Battery ID", 
+          "Condition", "Issue", "Parts Checked", "Staff Name", "Station Name"
+        ]);
+      }
+      
+      sheet.appendRow([
+        record.timestamp,
+        record.taskType,
+        record.cycleId,
+        record.batteryId,
+        record.condition,
+        record.issue,
+        record.partsChecked,
+        record.staffName,
+        record.stationName
+      ]);
+    });
+    
+    return ContentService.createTextOutput(JSON.stringify({ 'result': 'success' })).setMimeType(ContentService.MimeType.JSON);
+  } catch(error) {
+    return ContentService.createTextOutput(JSON.stringify({ 'result': 'error', 'error': error.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, Database, Wand2, Loader2 } from 'lucide-react';
+import { Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, Database, Wand2, Loader2, Eye, Trash2, Edit3, AlertTriangle, X, Filter } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
 import { refineTextWithAI, executeAICommand } from '../utils/ai';
@@ -17,6 +17,7 @@ export default function AdminDashboard() {
   const [isRefining, setIsRefining] = useState(false);
   const [activeTab, setActiveTab] = useState('reports');
   const [editingRecord, setEditingRecord] = useState(null);
+  const [viewingRecord, setViewingRecord] = useState(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [activeIssuesList, setActiveIssuesList] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -48,6 +49,7 @@ export default function AdminDashboard() {
   const [globalData, setGlobalData] = useState([]);
   const [dataSearch, setDataSearch] = useState('');
   const [dataFilter, setDataFilter] = useState('All');
+  const [dataDateFilter, setDataDateFilter] = useState('');
   const [isLoadingGlobal, setIsLoadingGlobal] = useState(false);
   const [postponements, setPostponements] = useState({ station: [], overall: [], manualStation: {}, manualOverall: {} });
 
@@ -871,7 +873,8 @@ export default function AdminDashboard() {
                       { key: 'battery_swap', label: 'Standard Battery Swap' },
                       { key: 'home_battery_swap', label: 'Home Battery Swap' },
                       { key: 'home_cycle', label: 'Home Cycle' },
-                      { key: 'battery_test', label: 'Battery Test' }
+                      { key: 'battery_test', label: 'Battery Test' },
+                      { key: 'offline_cycles', label: 'Offline Cycles' }
                     ].map(form => {
                       const isHidden = hiddenForms[form.key];
                       return (
@@ -899,15 +902,33 @@ export default function AdminDashboard() {
                 <div className="flex flex-col gap-6 mb-8">
                   <div className="flex justify-between items-center">
                     <h3 className="text-gray-900 text-xl font-bold">Master Data Archive</h3>
-                    <div className="relative">
-                      <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input 
-                        type="text"
-                        placeholder="Search cycle, staff..."
-                        value={dataSearch}
-                        onChange={e => setDataSearch(e.target.value)}
-                        className="pl-11 pr-4 py-2 bg-white border-none outline-none focus:ring-2 focus:ring-black text-sm rounded-full w-64 text-gray-900 shadow-sm"
-                      />
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input 
+                          type="text"
+                          placeholder="Search cycle, staff..."
+                          value={dataSearch}
+                          onChange={e => setDataSearch(e.target.value)}
+                          className="pl-11 pr-4 py-2 bg-white border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-500 text-sm rounded-full w-64 text-gray-900 shadow-sm transition-all"
+                        />
+                      </div>
+                      <div className="relative">
+                        <div className="flex items-center bg-white border border-gray-200 rounded-full shadow-sm px-4 py-2 transition-all focus-within:ring-2 focus-within:ring-indigo-500">
+                          <Filter size={16} className="text-gray-400 mr-2" />
+                          <input 
+                            type="date"
+                            value={dataDateFilter}
+                            onChange={e => setDataDateFilter(e.target.value)}
+                            className="bg-transparent border-none outline-none text-sm text-gray-700 w-[130px] cursor-pointer"
+                          />
+                          {dataDateFilter && (
+                            <button onClick={() => setDataDateFilter('')} className="ml-2 text-gray-400 hover:text-gray-600">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
@@ -948,31 +969,62 @@ export default function AdminDashboard() {
                             const term = dataSearch.toLowerCase();
                             return String(item.cycle_id).includes(term) || item.staff_name.toLowerCase().includes(term);
                           })
-                          .map(item => (
+                          .filter(item => {
+                            if (!dataDateFilter) return true;
+                            const itemDate = new Date(item.created_at).toISOString().split('T')[0];
+                            return itemDate === dataDateFilter;
+                          })
+                          .map(item => {
+                            const hasIssue = item.condition === 'issue' || !!item.issue;
+                            return (
                           <tr key={`${item.source}-${item.id}`} className="hover:bg-gray-50/50 transition-colors group">
-                            <td className="py-5 px-2 font-bold text-gray-900 text-[15px]">{item.cycle_id}</td>
+                            <td className="py-5 px-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-gray-900 text-[15px]">{item.cycle_id}</span>
+                                {hasIssue && (
+                                  <span className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold">
+                                    <AlertTriangle size={10} /> Issue
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="py-5 px-2">
                               <span className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold tracking-wide ${
-                                item.task_type === 'Routine Checkup' ? 'bg-blue-50 text-blue-600' :
-                                item.task_type === 'Overall Checkup' ? 'bg-purple-50 text-purple-600' :
-                                item.task_type === 'Station Visit' ? 'bg-emerald-50 text-emerald-600' :
-                                item.task_type === 'Pre-task Cross-check' ? 'bg-indigo-50 text-indigo-600' :
-                                'bg-red-50 text-red-600'
+                                item.task_type === 'Routine Checkup' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
+                                item.task_type === 'Overall Checkup' ? 'bg-purple-50 text-purple-600 border border-purple-100' :
+                                item.task_type === 'Station Visit' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                item.task_type === 'Pre-task Cross-check' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
+                                'bg-orange-50 text-orange-600 border border-orange-100'
                               }`}>
                                 {item.task_type}
                               </span>
                             </td>
-                            <td className="py-5 px-2 text-gray-600 font-medium text-sm">{item.staff_name}</td>
+                            <td className="py-5 px-2 text-gray-600 font-medium text-sm flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500">
+                                {item.staff_name.charAt(0)}
+                              </div>
+                              {item.staff_name}
+                            </td>
                             <td className="py-5 px-2">
-                              <span className="text-gray-900 font-semibold block text-sm">{new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                              <span className="text-gray-400 text-[11px]">{new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                              <span className="text-gray-900 font-medium block text-sm">{new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              <span className="text-gray-400 text-[11px] font-medium">{new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                             </td>
                             <td className="py-5 px-2 text-right">
-                              <button onClick={() => setEditingRecord(item)} className="text-indigo-600 hover:text-indigo-800 text-xs font-bold transition mr-3">Edit</button>
-                              <button onClick={() => handleDeleteRecord(item.source, item.id)} className="text-red-400 hover:text-red-600 text-xs font-bold transition">Delete</button>
+                              <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => setViewingRecord(item)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="View Details">
+                                  <Eye size={16} />
+                                </button>
+                                <button onClick={() => setEditingRecord(item)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Edit">
+                                  <Edit3 size={16} />
+                                </button>
+                                <button onClick={() => handleDeleteRecord(item.source, item.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete">
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
-                        ))
+                          )
+                        })
                       )}
                       {(!isLoadingGlobal && globalData.length === 0) && (
                         <tr><td colSpan="5" className="py-12 text-center text-gray-400">No records found matching your search.</td></tr>
@@ -1499,6 +1551,89 @@ export default function AdminDashboard() {
               </button>
               <button onClick={handleSaveEdit} disabled={isSavingEdit} className="px-5 py-2.5 rounded-full text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 flex items-center gap-2">
                 {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Record Modal */}
+      {viewingRecord && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-xl relative animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-start mb-6">
+              <h3 className="text-xl font-bold text-gray-900">Record Details</h3>
+              <button onClick={() => setViewingRecord(null)} className="text-gray-400 hover:text-gray-600 transition">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">Cycle ID</span>
+                  <span className="font-bold text-gray-900">{viewingRecord.cycle_id}</span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">Task Type</span>
+                  <span className="font-bold text-gray-900">{viewingRecord.task_type}</span>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">Staff Member</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600">
+                    {viewingRecord.staff_name.charAt(0)}
+                  </div>
+                  <span className="font-bold text-gray-900">{viewingRecord.staff_name}</span>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">Date & Time</span>
+                <span className="font-bold text-gray-900 block">{new Date(viewingRecord.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                <span className="text-sm text-gray-500">{new Date(viewingRecord.created_at).toLocaleTimeString('en-US')}</span>
+              </div>
+
+              {viewingRecord.source === 'tasks' && (
+                <>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                    <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">Condition</span>
+                    <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wide ${viewingRecord.condition === 'issue' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {viewingRecord.condition || 'good'}
+                    </span>
+                  </div>
+
+                  {viewingRecord.condition === 'issue' && (
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-100 text-red-900">
+                      <span className="block text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1">
+                        <AlertTriangle size={12} /> Reported Issue
+                      </span>
+                      <p className="text-sm font-medium whitespace-pre-wrap">{viewingRecord.issue || 'No details provided.'}</p>
+                    </div>
+                  )}
+                  
+                  {viewingRecord.parts_checked && (
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">Parts Checked</span>
+                      <p className="text-sm text-gray-900 font-medium">{viewingRecord.parts_checked}</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {viewingRecord.source === 'maintenance' && (
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <span className="block text-xs font-semibold text-gray-400 uppercase mb-2">Repair Description</span>
+                  <p className="text-sm text-gray-900 font-medium whitespace-pre-wrap">{viewingRecord.fix_description}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end mt-8">
+              <button onClick={() => setViewingRecord(null)} className="px-5 py-2.5 rounded-full text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-md w-full">
+                Close
               </button>
             </div>
           </div>
