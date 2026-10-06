@@ -7,34 +7,26 @@ const PAGE_SIZE = 10;
 export default function OfflineCyclesForm({ staffName, onBack }) {
   const [cycles, setCycles] = useState([]);
   const [total, setTotal] = useState(0);
-  const [completed, setCompleted] = useState(0);
   const [loading, setLoading] = useState(true);
   const [savingCycle, setSavingCycle] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [isLive, setIsLive] = useState(false);
 
   const loadCycles = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
     setError('');
 
-    const [queueResult, allResult] = await Promise.all([
-      supabase
-        .from('offline_cycles')
-        .select('*')
-        .eq('completed', false)
-        .order('sort_order', { ascending: true })
-        .limit(PAGE_SIZE),
-      supabase
-        .from('offline_cycles')
-        .select('completed'),
-    ]);
+    const { data, error: loadError } = await supabase
+      .from('offline_cycles')
+      .select('*')
+      .order('sort_order', { ascending: true });
 
-    if (queueResult.error || allResult.error) {
-      setError(queueResult.error?.message || allResult.error?.message || 'Unable to load cycles.');
+    if (loadError) {
+      setError(loadError.message || 'Unable to load cycles.');
     } else {
-      setCycles(queueResult.data || []);
-      setTotal(allResult.data?.length || 0);
-      setCompleted(allResult.data?.filter((cycle) => cycle.completed).length || 0);
+      setCycles((data || []).filter((cycle) => !cycle.completed));
+      setTotal(data?.length || 0);
     }
 
     setLoading(false);
@@ -48,9 +40,29 @@ export default function OfflineCyclesForm({ staffName, onBack }) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'offline_cycles' },
-        () => loadCycles({ quiet: true }),
+        (payload) => {
+          const changedCycle = payload.new;
+
+          if (payload.eventType === 'INSERT') {
+            setTotal((current) => current + 1);
+          } else if (payload.eventType === 'DELETE') {
+            setTotal((current) => Math.max(0, current - 1));
+          }
+
+          setCycles((current) => {
+            const withoutChangedCycle = current.filter(
+              (cycle) => cycle.cycle_number !== (changedCycle?.cycle_number || payload.old?.cycle_number),
+            );
+            if (!changedCycle || changedCycle.completed) return withoutChangedCycle;
+            return [...withoutChangedCycle, changedCycle].sort((a, b) => a.sort_order - b.sort_order);
+          });
+        },
       )
-      .subscribe((status) => setIsLive(status === 'SUBSCRIBED'));
+      .subscribe((status) => {
+        const connected = status === 'SUBSCRIBED';
+        setIsLive(connected);
+        if (connected) loadCycles({ quiet: true });
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -61,6 +73,11 @@ export default function OfflineCyclesForm({ staffName, onBack }) {
     if (savingCycle) return;
     setSavingCycle(cycleNumber);
     setError('');
+    setNotice('');
+
+    // Update this screen before the network response. The realtime event does
+    // the same for every other connected user without an additional fetch.
+    setCycles((current) => current.filter((cycle) => cycle.cycle_number !== cycleNumber));
 
     const { data, error: updateError } = await supabase
       .from('offline_cycles')
@@ -76,14 +93,17 @@ export default function OfflineCyclesForm({ staffName, onBack }) {
 
     if (updateError) {
       setError(updateError.message);
+      await loadCycles({ quiet: true });
     } else if (!data?.length) {
-      setError(`${cycleNumber} was already completed by another staff member.`);
+      setNotice(`${cycleNumber} was already completed by another staff member.`);
+      await loadCycles({ quiet: true });
     }
 
-    await loadCycles({ quiet: true });
     setSavingCycle('');
   };
 
+  const completed = Math.max(0, total - cycles.length);
+  const visibleCycles = cycles.slice(0, PAGE_SIZE);
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
   return (
@@ -127,12 +147,13 @@ export default function OfflineCyclesForm({ staffName, onBack }) {
       </div>
 
       {error && <p className="mb-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">Unable to load the work queue. Please ask the administrator to finish the Supabase setup.</p>}
+      {notice && <p className="mb-3 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">{notice}</p>}
 
       {loading ? (
         <div className="flex min-h-40 items-center justify-center text-gray-500"><LoaderCircle className="animate-spin" size={26} /></div>
-      ) : error ? null : cycles.length ? (
+      ) : visibleCycles.length ? (
         <div className="space-y-2.5">
-          {cycles.map((cycle) => {
+          {visibleCycles.map((cycle) => {
             const isSaving = savingCycle === cycle.cycle_number;
             return (
               <div key={cycle.cycle_number} className="flex min-h-20 items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-gray-200">
@@ -158,7 +179,7 @@ export default function OfflineCyclesForm({ staffName, onBack }) {
             );
           })}
         </div>
-      ) : (
+      ) : error ? null : (
         <div className="rounded-2xl bg-emerald-50 px-5 py-10 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={26} /></div>
           <p className="font-semibold text-emerald-900">All cycles completed</p>
