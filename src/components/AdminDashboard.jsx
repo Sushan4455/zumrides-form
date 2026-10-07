@@ -335,6 +335,8 @@ export default function AdminDashboard() {
     try {
       const { data: tasks } = await supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(1000);
       const { data: maint } = await supabase.from('maintenance').select('*').order('created_at', { ascending: false }).limit(1000);
+      const { data: swaps } = await supabase.from('battery_swaps').select('*').order('created_at', { ascending: false }).limit(1000);
+      const { data: homes } = await supabase.from('home_cycles').select('*').order('created_at', { ascending: false }).limit(1000);
       
       const combined = [
         ...(tasks || []).map(t => ({ ...t, source: 'tasks' })),
@@ -346,6 +348,24 @@ export default function AdminDashboard() {
            created_at: m.created_at,
            fix_description: m.fix_description,
            source: 'maintenance'
+        })),
+        ...(swaps || []).map(s => ({
+           id: s.id,
+           task_type: 'Battery Swap',
+           staff_name: s.staff_name,
+           cycle_id: s.cycle_id,
+           created_at: s.created_at,
+           in_battery_id: s.in_battery_id,
+           out_battery_id: s.out_battery_id,
+           source: 'battery_swaps'
+        })),
+        ...(homes || []).map(h => ({
+           id: h.id,
+           task_type: 'Home Cycle',
+           staff_name: h.manual_name,
+           cycle_id: h.home_cycle_id || h.old_battery_id,
+           created_at: h.created_at,
+           source: 'home_cycles'
         }))
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       
@@ -448,6 +468,10 @@ export default function AdminDashboard() {
         };
       } else if (table === 'maintenance') {
         updates = { fix_description: editingRecord.fix_description };
+      } else if (table === 'battery_swaps' || table === 'home_cycles') {
+        alert('Editing is not fully supported for this record type yet.');
+        setIsSavingEdit(false);
+        return;
       }
       
       const { error } = await supabase.from(table).update(updates).eq('id', editingRecord.id);
@@ -1489,7 +1513,7 @@ export default function AdminDashboard() {
           <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-xl relative animate-in fade-in zoom-in duration-200">
             <h3 className="text-xl font-bold text-gray-900 mb-6">Edit Record</h3>
             
-            {editingRecord.source === 'tasks' ? (
+            {editingRecord.source === 'tasks' && (
               <div className="flex flex-col gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Task Type</label>
@@ -1531,7 +1555,9 @@ export default function AdminDashboard() {
                   </div>
                 )}
               </div>
-            ) : (
+            )}
+            
+            {editingRecord.source === 'maintenance' && (
               <div className="flex flex-col gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Repair Description</label>
@@ -1541,6 +1567,14 @@ export default function AdminDashboard() {
                     className="w-full p-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-black text-sm"
                     rows="3"
                   />
+                </div>
+              </div>
+            )}
+            
+            {(editingRecord.source === 'battery_swaps' || editingRecord.source === 'home_cycles') && (
+              <div className="flex flex-col gap-4">
+                <div className="text-sm text-gray-500 mb-2">
+                  Editing for this record type is not supported in this modal yet.
                 </div>
               </div>
             )}
@@ -1627,6 +1661,19 @@ export default function AdminDashboard() {
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                   <span className="block text-xs font-semibold text-gray-400 uppercase mb-2">Repair Description</span>
                   <p className="text-sm text-gray-900 font-medium whitespace-pre-wrap">{viewingRecord.fix_description}</p>
+                </div>
+              )}
+
+              {viewingRecord.source === 'battery_swaps' && (
+                <div className="flex gap-4">
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex-1">
+                    <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">IN Battery</span>
+                    <p className="text-sm text-gray-900 font-medium">{viewingRecord.in_battery_id || 'N/A'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex-1">
+                    <span className="block text-xs font-semibold text-gray-400 uppercase mb-1">OUT Battery</span>
+                    <p className="text-sm text-gray-900 font-medium">{viewingRecord.out_battery_id || 'N/A'}</p>
+                  </div>
                 </div>
               )}
             </div>
