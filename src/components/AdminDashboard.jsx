@@ -53,6 +53,7 @@ export default function AdminDashboard() {
   const [liveEditSaveStatus, setLiveEditSaveStatus] = useState(false);
   const logoInputRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
+  const undoStackRef = useRef([]);
 
   // Popup states for adding new title, multi-row/column table builder, and reordering titles
   const [showAddTitleModal, setShowAddTitleModal] = useState(false);
@@ -614,9 +615,37 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!isAuthenticated) return;
+    
+    // Initial fetch
+    fetchDashboardData();
+
+    // 1. Supabase Realtime channel for instant live updates across home_cycles, tasks, swaps, maintenance
+    const channel = supabase
+      .channel('admin-dashboard-live-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'home_cycles' }, () => {
+        fetchDashboardData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchDashboardData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'battery_swaps' }, () => {
+        fetchDashboardData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance' }, () => {
+        fetchDashboardData();
+      })
+      .subscribe();
+
+    // 2. Active 5-second polling interval so submissions reflect quickly and reliably in the report
+    const pollInterval = setInterval(() => {
       fetchDashboardData();
-    }
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, isAuthenticated]);
 
@@ -775,6 +804,148 @@ export default function AdminDashboard() {
     );
   };
 
+  const pushUndoState = () => {
+    const el = document.getElementById('report-editable-body');
+    if (el) {
+      undoStackRef.current.push(el.innerHTML);
+      if (undoStackRef.current.length > 25) {
+        undoStackRef.current.shift();
+      }
+    }
+  };
+
+  const handleUndo = () => {
+    if (!undoStackRef.current || undoStackRef.current.length === 0) {
+      alert("Nothing to undo.");
+      return;
+    }
+    const previousHtml = undoStackRef.current.pop();
+    const el = document.getElementById('report-editable-body');
+    if (el && previousHtml) {
+      el.innerHTML = previousHtml;
+      saveCurrentReportHtml(true);
+      scanReportSections();
+    }
+  };
+
+  const renderHomeCyclesHtml = (cyclesList = null) => {
+    const rows = cyclesList || data?.home_cycles || [];
+    let tableHtml = '';
+    if (rows.length === 0) {
+      tableHtml = '<p class="text-sm text-gray-900">No home cycles were submitted for this shift.</p>';
+    } else {
+      const trs = rows.map(r => `
+        <tr>
+          <td class="border border-gray-400 py-2 px-3 font-medium text-gray-900">${r.manual_name || '—'}</td>
+          <td class="border border-gray-400 py-2 px-3 text-gray-900">${r.home_cycle_id || '—'}</td>
+          <td class="border border-gray-400 py-2 px-3 font-mono text-gray-900">${r.old_battery_id || '—'}</td>
+          <td class="border border-gray-400 py-2 px-3 font-mono text-gray-900">${r.new_battery_id || '—'}</td>
+        </tr>
+      `).join('');
+      tableHtml = `
+        <div class="overflow-x-auto my-3 table-box-wrapper">
+          <table class="w-full text-sm text-left border-collapse border border-gray-400">
+            <thead>
+              <tr>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Name</th>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Cycle</th>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Old Battery</th>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">New Battery</th>
+              </tr>
+            </thead>
+            <tbody>${trs}</tbody>
+          </table>
+        </div>
+      `;
+    }
+    return `
+      <div class="mb-12 break-inside-avoid standard-report-section" data-section-key="home_cycles">
+        <h3 class="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">10. Home Cycles</h3>
+        ${tableHtml}
+      </div>
+    `;
+  };
+
+  const handleRestoreHomeCyclesSection = () => {
+    pushUndoState();
+    const el = document.getElementById('report-editable-body');
+    if (!el) return;
+
+    const nodes = getEditableSectionNodes();
+    const existing = nodes.find(n => /home\s*cycles/i.test(n.querySelector('h3, h2')?.innerText || ''));
+    if (existing) {
+      alert('"Home Cycles" section is already present in the report.');
+      return;
+    }
+
+    const homeHtml = renderHomeCyclesHtml(data?.home_cycles || []);
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = homeHtml.trim();
+    const newSection = tempDiv.firstElementChild;
+
+    const refNode = nodes.find(n => /battery\s*tests/i.test(n.querySelector('h3, h2')?.innerText || ''))
+      || nodes.find(n => /extra\s*work|remarks/i.test(n.querySelector('h3, h2')?.innerText || ''))
+      || nodes.find(n => /closing\s*summary/i.test(n.querySelector('h3, h2')?.innerText || ''));
+
+    if (refNode && refNode.parentNode === el) {
+      el.insertBefore(newSection, refNode);
+    } else {
+      const footer = el.querySelector('.report-footer');
+      if (footer) {
+        el.insertBefore(newSection, footer);
+      } else {
+        el.appendChild(newSection);
+      }
+    }
+
+    handleAutoNumberReportSections();
+    saveCurrentReportHtml(true);
+    scanReportSections();
+  };
+
+  const updateHomeCyclesSectionInDom = (homeCyclesList) => {
+    const el = document.getElementById('report-editable-body');
+    if (!el) return;
+    const nodes = getEditableSectionNodes();
+    const homeNode = nodes.find(n => /home\s*cycles/i.test(n.querySelector('h3, h2')?.innerText || ''));
+    if (!homeNode) return;
+
+    const heading = homeNode.querySelector('h3, h2');
+    const headingHtml = heading ? heading.outerHTML : '<h3 class="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">10. Home Cycles</h3>';
+
+    let tableHtml = '';
+    if (!homeCyclesList || homeCyclesList.length === 0) {
+      tableHtml = '<p class="text-sm text-gray-900">No home cycles were submitted for this shift.</p>';
+    } else {
+      const trs = homeCyclesList.map(row => `
+        <tr>
+          <td class="border border-gray-400 py-2 px-3 font-medium text-gray-900">${row.manual_name || '—'}</td>
+          <td class="border border-gray-400 py-2 px-3 text-gray-900">${row.home_cycle_id || '—'}</td>
+          <td class="border border-gray-400 py-2 px-3 font-mono text-gray-900">${row.old_battery_id || '—'}</td>
+          <td class="border border-gray-400 py-2 px-3 font-mono text-gray-900">${row.new_battery_id || '—'}</td>
+        </tr>
+      `).join('');
+      tableHtml = `
+        <div class="overflow-x-auto my-3 table-box-wrapper">
+          <table class="w-full text-sm text-left border-collapse border border-gray-400">
+            <thead>
+              <tr>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Name</th>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Cycle</th>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">Old Battery</th>
+                <th class="border border-gray-400 py-2 px-3 font-semibold text-gray-900">New Battery</th>
+              </tr>
+            </thead>
+            <tbody>${trs}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    homeNode.innerHTML = `${headingHtml}\n${tableHtml}`;
+    saveCurrentReportHtml();
+  };
+
   const scanReportSections = () => {
     const nodes = getEditableSectionNodes();
     const list = nodes.map((node, idx) => {
@@ -822,6 +993,7 @@ export default function AdminDashboard() {
 
     const el = document.getElementById('report-editable-body');
     if (!el) return;
+    pushUndoState();
 
     const newSection = document.createElement('div');
     newSection.className = 'mb-12 break-inside-avoid custom-report-section';
@@ -831,9 +1003,10 @@ export default function AdminDashboard() {
     if (cleanNewTitle) {
       inner += `<h3 class="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2" style="font-family: 'Play', sans-serif;">${cleanNewTitle}</h3>`;
     }
-    if (newSectionContent.trim() || !includeTableInNewSection) {
-      const bodyText = newSectionContent.trim() || 'Click here to write section details...';
-      inner += `<p class="text-sm leading-relaxed text-gray-900 mb-3 whitespace-pre-wrap" style="font-family: 'Play', sans-serif;">${bodyText}</p>`;
+    if (newSectionContent.trim()) {
+      inner += `<p class="text-sm leading-relaxed text-gray-900 mb-3 whitespace-pre-wrap" style="font-family: 'Play', sans-serif;">${newSectionContent.trim()}</p>`;
+    } else if (!includeTableInNewSection) {
+      inner += `<p class="text-sm leading-relaxed text-gray-900 mb-3 whitespace-pre-wrap" style="font-family: 'Play', sans-serif;">Click here to write section details...</p>`;
     }
     if (includeTableInNewSection) {
       const thHtml = tableBuilderHeaders
@@ -848,10 +1021,12 @@ export default function AdminDashboard() {
         })
         .join('');
       inner += `
-        <table class="w-full text-sm text-left border-collapse mb-4 border border-gray-400 custom-report-table">
-          <thead><tr>${thHtml}</tr></thead>
-          <tbody>${trsHtml}</tbody>
-        </table>
+        <div class="overflow-x-auto my-3 table-box-wrapper">
+          <table class="w-full text-sm text-left border-collapse mb-4 border border-gray-400 custom-report-table">
+            <thead><tr>${thHtml}</tr></thead>
+            <tbody>${trsHtml}</tbody>
+          </table>
+        </div>
       `;
     }
 
@@ -897,6 +1072,7 @@ export default function AdminDashboard() {
   const handleMoveReportSection = (fromIdx, toIdx) => {
     const el = document.getElementById('report-editable-body');
     if (!el) return;
+    pushUndoState();
     const nodes = getEditableSectionNodes();
     if (toIdx < 0 || toIdx >= nodes.length || fromIdx === toIdx) return;
 
@@ -932,6 +1108,7 @@ export default function AdminDashboard() {
   const handleDeleteReportSection = (idx) => {
     const nodes = getEditableSectionNodes();
     if (!nodes[idx]) return;
+    pushUndoState();
     nodes[idx].remove();
     // Automatically manage and adjust numbering after removing the section
     handleAutoNumberReportSections();
@@ -958,6 +1135,7 @@ export default function AdminDashboard() {
   const handleRemoveActiveSection = () => {
     const el = document.getElementById('report-editable-body');
     if (!el) return;
+    pushUndoState();
     const nodes = getEditableSectionNodes();
     if (nodes.length <= 1) {
       alert("Cannot remove the only remaining section.");
@@ -1061,6 +1239,7 @@ export default function AdminDashboard() {
       handleOpenAddTitleModal({ tableOnly: true });
       return;
     }
+    pushUndoState();
     const colCount = getTableColumnCount(table);
     clearPlaceholderRowIfNeeded(table, colCount);
 
@@ -1083,6 +1262,7 @@ export default function AdminDashboard() {
       handleOpenAddTitleModal({ tableOnly: true });
       return;
     }
+    pushUndoState();
     const colCount = getTableColumnCount(table);
     // If table only has a colSpan placeholder row, convert it into real cells first
     const tbody = table.querySelector('tbody') || table;
@@ -1118,6 +1298,7 @@ export default function AdminDashboard() {
   const handleRemoveTableRowInReport = (targetTable = null) => {
     const table = (targetTable && targetTable.nodeName === 'TABLE') ? targetTable : getActiveOrLastReportTable();
     if (!table) return;
+    pushUndoState();
     const rows = table.querySelectorAll('tbody tr');
     if (rows.length > 1) {
       rows[rows.length - 1].remove();
@@ -1128,6 +1309,7 @@ export default function AdminDashboard() {
   const handleRemoveTableColInReport = (targetTable = null) => {
     const table = (targetTable && targetTable.nodeName === 'TABLE') ? targetTable : getActiveOrLastReportTable();
     if (!table) return;
+    pushUndoState();
     const theadRow = table.querySelector('thead tr');
     if (theadRow && theadRow.children.length > 1) {
       theadRow.lastElementChild.remove();
@@ -1139,6 +1321,39 @@ export default function AdminDashboard() {
       }
     });
     saveCurrentReportHtml();
+  };
+
+  const handleDeleteTableInReport = (targetTable = null) => {
+    if (!isLiveEditMode) setIsLiveEditMode(true);
+    const table = (targetTable && targetTable.nodeName === 'TABLE') ? targetTable : getActiveOrLastReportTable();
+    if (!table) return;
+    pushUndoState();
+
+    const parentWrapper = table.closest('.table-box-wrapper') || (table.parentElement?.classList.contains('overflow-x-auto') ? table.parentElement : null);
+    const section = table.closest('.custom-report-section, .standard-report-section, div.mb-12');
+
+    if (parentWrapper) {
+      parentWrapper.remove();
+    } else {
+      table.remove();
+    }
+
+    // If the enclosing section has no more content, or only an empty heading left, remove section too
+    if (section) {
+      const remainingTables = section.querySelectorAll('table');
+      const paragraphs = section.querySelectorAll('p');
+      const heading = section.querySelector('h3, h2');
+      const text = (section.innerText || '').replace(heading?.innerText || '', '').trim();
+      if (remainingTables.length === 0 && paragraphs.length === 0 && !text) {
+        section.remove();
+        handleAutoNumberReportSections();
+      }
+    }
+
+    lastClickedTableRef.current = null;
+    setActiveTableBanner(null);
+    saveCurrentReportHtml(true);
+    scanReportSections();
   };
 
   const handleReportBodyClick = (e) => {
@@ -1212,9 +1427,33 @@ export default function AdminDashboard() {
         // Strip any legacy embedded report-header from savedHtml
         const cleanSavedHtml = savedHtml.replace(/<div class="report-header[^>]*>[\s\S]*?<\/div>\s*<\/div>/i, '');
         el.innerHTML = cleanSavedHtml;
+        if (data?.home_cycles && data.home_cycles.length > 0) {
+          updateHomeCyclesSectionInDom(data.home_cycles);
+        }
       }
     }
   }, [isLiveEditMode, reportDateKey, activeTab, routineStaff]);
+
+  // Keep home cycles live and updated instantly whenever fresh submissions arrive
+  useEffect(() => {
+    if (data?.home_cycles) {
+      updateHomeCyclesSectionInDom(data.home_cycles);
+    }
+  }, [data?.home_cycles]);
+
+  // Global keyboard shortcut for Undo (Cmd+Z / Ctrl+Z)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (undoStackRef.current && undoStackRef.current.length > 0) {
+          e.preventDefault();
+          handleUndo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   const fetchActiveIssues = async () => {
     try {
@@ -1536,6 +1775,7 @@ export default function AdminDashboard() {
 
     const el = document.getElementById('report-editable-body');
     if (!el) return;
+    pushUndoState();
 
     setIsRefiningEntireReport(true);
     setGeminiStatusMsg('✨ Refining report language with Google Gemini AI...');
@@ -2797,7 +3037,15 @@ export default function AdminDashboard() {
                               </button>
                             </div>
 
-                            {/* Document Structure Actions */}
+                            {/* Document & History Actions */}
+                            <button
+                              type="button"
+                              onClick={handleUndo}
+                              className="shrink-0 px-2.5 py-1.5 bg-[#F5F5F7] hover:bg-[#E8E8ED] text-[#1D1D1F] rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
+                              title="Undo last change (Ctrl+Z / Cmd+Z)"
+                            >
+                              <RotateCcw size={13} /> Undo
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleOpenAddTitleModal({ tableOnly: false })}
@@ -2818,9 +3066,25 @@ export default function AdminDashboard() {
                               type="button"
                               onClick={() => handleOpenAddTitleModal({ tableOnly: true })}
                               className="shrink-0 px-2.5 py-1.5 bg-[#F5F5F7] hover:bg-[#E8E8ED] text-[#1D1D1F] rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
-                              title="Insert a table with multiple rows and columns"
+                              title="Create and insert a new table box with custom columns and rows"
                             >
-                              <TableIcon size={13} /> Table
+                              <TableIcon size={13} /> + Table Box
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTableInReport()}
+                              className="shrink-0 px-2.5 py-1.5 bg-[#F5F5F7] hover:bg-red-50 text-[#86868B] hover:text-red-600 rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
+                              title="Delete active table box"
+                            >
+                              <Trash2 size={13} /> Delete Box
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRestoreHomeCyclesSection}
+                              className="shrink-0 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/60 rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
+                              title="Restore Home Cycles section if removed"
+                            >
+                              <RotateCcw size={13} /> Restore "Home Cycles"
                             </button>
                             <button
                               type="button"
@@ -3066,8 +3330,19 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onMouseDown={e => e.preventDefault()}
+                    onClick={() => handleDeleteTableInReport()}
+                    className="px-2.5 py-1 bg-[#FF3B30] hover:bg-[#FF3B30]/90 text-white rounded-full font-medium transition active:scale-95 flex items-center gap-1"
+                    title="Delete this entire table box"
+                  >
+                    <Trash2 size={12} />
+                    Delete Box
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
                     onClick={() => setActiveTableBanner(null)}
-                    className="ml-1 text-white/60 hover:text-white"
+                    className="ml-1 text-white/60 hover:text-white p-0.5"
+                    title="Close toolbar"
                   >
                     <X size={13} />
                   </button>
@@ -3747,17 +4022,31 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[#86868B]">
                 {reportSectionsSnapshot.length} Sections in Report
               </span>
-              <button
-                type="button"
-                onClick={handleAutoNumberReportSections}
-                className="px-3.5 py-1.5 bg-[#F5F5F7] hover:bg-[#E8E8ED] text-[#1D1D1F] rounded-full text-xs font-semibold transition active:scale-95"
-              >
-                Auto-Number Titles (1, 2, 3...)
-              </button>
+              <div className="flex items-center gap-1.5">
+                {!reportSectionsSnapshot.some(s => /home\s*cycles/i.test(s.title)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleRestoreHomeCyclesSection();
+                      setShowReorderTitlesModal(false);
+                    }}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/60 rounded-full text-xs font-semibold transition active:scale-95 flex items-center gap-1"
+                  >
+                    <RotateCcw size={12} /> + Restore "Home Cycles"
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAutoNumberReportSections}
+                  className="px-3.5 py-1.5 bg-[#F5F5F7] hover:bg-[#E8E8ED] text-[#1D1D1F] rounded-full text-xs font-semibold transition active:scale-95"
+                >
+                  Auto-Number Titles (1, 2, 3...)
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-2 max-h-[58vh] overflow-y-auto pr-1">
