@@ -1111,10 +1111,20 @@ export default function AdminDashboard() {
   useEffect(() => {
     const savedHtml = localStorage.getItem(REPORT_HTML_STORAGE_KEY);
     if (savedHtml) {
+      // Check if savedHtml is missing any staff who are currently present in live routine data
+      const missingStaff = routineStaff.filter(name => !savedHtml.includes(name));
+      if (missingStaff.length > 0) {
+        // Saved HTML is stale (e.g. from earlier before all staff submitted).
+        // Remove stale cache so live report displays all staff properly!
+        try {
+          localStorage.removeItem(REPORT_HTML_STORAGE_KEY);
+        } catch (e) {}
+        return;
+      }
       const el = document.getElementById('report-editable-body');
       if (el) el.innerHTML = savedHtml;
     }
-  }, [isLiveEditMode, reportDateKey, activeTab]);
+  }, [isLiveEditMode, reportDateKey, activeTab, routineStaff]);
 
   const fetchActiveIssues = async () => {
     try {
@@ -1297,25 +1307,37 @@ export default function AdminDashboard() {
 
   const buildLiveReportSnapshot = () => {
     const nodes = getEditableSectionNodes();
+    const liveStaffWorkList = Array.from(staffWork.entries()).map(([staff, acts]) => `${staff}: ${acts.join('; ')}.`);
+
     const sections = nodes.map((sec, idx) => {
       const heading = sec.querySelector('h3, h2');
       const title = heading ? heading.innerText.trim() : `Section ${idx + 1}`;
       const paragraphs = Array.from(sec.querySelectorAll('p'))
         .map(p => (p.innerText || '').trim())
         .filter(Boolean);
-      const rows = [];
-      const trs = sec.querySelectorAll('tbody tr');
-      trs.forEach(tr => {
-        if (tr.getAttribute('data-placeholder-row') === 'true') return;
-        const cells = Array.from(tr.querySelectorAll('td')).map(td => (td.innerText || '').trim());
-        if (cells.length === 1 && /^no\s+.*recorded/i.test(cells[0])) return;
-        if (cells.some(c => c && c !== '—')) {
-          rows.push(cells);
+
+      const tables = [];
+      const tableEls = sec.querySelectorAll('table');
+      tableEls.forEach(tbl => {
+        const headers = Array.from(tbl.querySelectorAll('thead th')).map(th => (th.innerText || '').trim());
+        const rows = [];
+        const trs = tbl.querySelectorAll('tbody tr');
+        trs.forEach(tr => {
+          if (tr.getAttribute('data-placeholder-row') === 'true') return;
+          const cells = Array.from(tr.querySelectorAll('td')).map(td => (td.innerText || '').trim());
+          if (cells.length === 1 && /^no\s+.*recorded/i.test(cells[0])) return;
+          if (cells.some(c => c && c !== '—')) {
+            rows.push(cells);
+          }
+        });
+        if (rows.length > 0) {
+          tables.push({ headers, rows });
         }
       });
-      return { title, paragraphs, rows };
+      const rows = tables.flatMap(t => t.rows);
+      return { title, paragraphs, tables, rows };
     });
-    return { date: todayStr, sections };
+    return { date: todayStr, sections, staffWorkLive: liveStaffWorkList };
   };
 
   const handleAnalyzeReportAndGenerateSummaries = async (target = 'all') => {
@@ -2951,6 +2973,25 @@ export default function AdminDashboard() {
                             {isRefining ? 'Refining...' : 'Polish Tone'}
                           </button>
                         </div>
+                        {activeEditSection === 'individual' && staffWork.size > 0 && (
+                          <div className="flex justify-between items-center mb-2 px-1">
+                            <span className="text-[11px] text-[#86868B]">
+                              Live detected staff ({staffWork.size}): {Array.from(staffWork.keys()).join(', ')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const allStaffText = Array.from(staffWork.entries())
+                                  .map(([staff, activities]) => `${staff}: ${activities.join('; ')}.`)
+                                  .join('\n\n');
+                                setOverrides(prev => ({ ...prev, individual: allStaffText }));
+                              }}
+                              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
+                            >
+                              ✨ Load All ({staffWork.size}) Staff Details
+                            </button>
+                          </div>
+                        )}
                         <textarea 
                           className="w-full p-4 rounded-xl border border-black/[0.06] outline-none text-xs sm:text-sm text-[#1D1D1F] whitespace-pre-wrap bg-[#F5F5F7] focus:bg-white focus:border-black/20 transition"
                           rows="4"

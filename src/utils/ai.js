@@ -135,9 +135,9 @@ export const analyzeReportAndGenerateSummariesWithAI = async (reportSnapshot, cu
 
   const prompt = `
 You are an executive operations analyst for Zum Operations.
-Analyze the entire daily shift report data below (including all sections, paragraphs, and table rows) and generate three professional sections:
+Analyze the entire daily shift report data below (including all sections, paragraphs, tables, and live staff work) and generate three professional sections:
 1. "opening": The Opening / Executive Operations Summary (Section 1). Summarize all operational activities, total checkups, issues identified in tables, and repairs recorded across the report in 2 clear, formal paragraphs.
-2. "individual": The Individual Staff Work Summary (Section 6). Analyze every table and section in the report to identify each staff member and list exactly what they accomplished (e.g., routine checkups, pre-task checks, overall inspections, station visits, mechanical repairs, battery swaps, or issues logged). Format as an array of strings, one per staff member (e.g., "Kabir: Completed routine checkups on cycles 101, 55 and reported a brake issue on cycle 55."). If no specific staff names appear in the data, provide a clean professional summary of the team's shift status.
+2. "individual": The Individual Staff Work Summary (Section 6). You MUST list EVERY staff member who submitted work across all operational categories (e.g., Routine Cycle Checkups, Pre-Task Checks, Overall Inspections, Station Visits, Mechanical Repairs, Battery Swaps). Check the Routine Checkup table (where staff names appear in Column 0), issue tables, and paragraph lines. Format as an array of strings with ONE entry per staff member (e.g., "Kabir: Completed routine checkups on 6 cycles (225, 89, 124...) and conducted overall checkup on 23 cycles."). Every staff member documented in the report MUST be included in this array.
 3. "closing": The Operational Closing Summary. Synthesize the overall shift status, total activities and issues found across the report, follow-up action items for maintenance/operations before cycles return to service, and a formal closing statement in 2 paragraphs.
 
 Report Content Snapshot:
@@ -147,6 +147,7 @@ CRITICAL RULES:
 1. Respond ONLY with a valid JSON object with keys: "opening" (string), "individual" (array of strings), and "closing" (string).
 2. Do NOT wrap in markdown code fences (\`\`\`json). Output raw JSON only.
 3. Base all numbers, cycle IDs, staff names, and issue descriptions strictly on what is present in the Report Content Snapshot.
+4. Ensure NO staff member who submitted work is omitted from "individual".
 `;
 
   try {
@@ -168,29 +169,107 @@ CRITICAL RULES:
   let totalIssuesOrRepairs = 0;
   const activeSections = [];
 
+  // Seed with live staff work details if available
+  if (reportSnapshot.staffWorkLive && Array.isArray(reportSnapshot.staffWorkLive)) {
+    reportSnapshot.staffWorkLive.forEach(line => {
+      const idxColon = line.indexOf(':');
+      if (idxColon !== -1) {
+        const sName = line.slice(0, idxColon).trim();
+        const sDetail = line.slice(idxColon + 1).trim();
+        if (sName) {
+          if (!staffMap.has(sName)) staffMap.set(sName, []);
+          staffMap.get(sName).push(sDetail);
+        }
+      }
+    });
+  }
+
   (reportSnapshot.sections || []).forEach(sec => {
     const titleLower = (sec.title || '').toLowerCase();
     if (titleLower.includes('executive') || titleLower.includes('closing') || titleLower.includes('individual')) {
       return;
     }
-    if (sec.rows && sec.rows.length > 0) {
-      activeSections.push(`${sec.title.replace(/^\d+[\.\)]\s*/, '')} (${sec.rows.length} entry/entries)`);
-      sec.rows.forEach(row => {
+
+    const tables = sec.tables || (sec.rows ? [{ rows: sec.rows }] : []);
+    tables.forEach(tbl => {
+      const headers = (tbl.headers || []).map(h => (h || '').toLowerCase());
+      const staffColIdx = headers.findIndex(h => h.includes('staff'));
+      const cycleColIdx = headers.findIndex(h => h.includes('cycle'));
+      const totalColIdx = headers.findIndex(h => h.includes('total'));
+      const issueColIdx = headers.findIndex(h => h.includes('issue') || h.includes('repair') || h.includes('condition') || h.includes('parts'));
+
+      (tbl.rows || []).forEach(row => {
         totalTableEntries++;
-        const cId = row[0] || '';
-        const sName = row[1] || '';
-        const desc = row[2] || '';
+        let sName = '';
+        let cId = '';
+        let desc = '';
+        let count = '';
+
+        if (staffColIdx !== -1 && row[staffColIdx]) {
+          sName = row[staffColIdx];
+        }
+        if (cycleColIdx !== -1 && row[cycleColIdx]) {
+          cId = row[cycleColIdx];
+        }
+        if (totalColIdx !== -1 && row[totalColIdx]) {
+          count = row[totalColIdx];
+        }
+        if (issueColIdx !== -1 && row[issueColIdx]) {
+          desc = row[issueColIdx];
+        }
+
+        // If no explicit staff header index, intelligently check columns
+        if (!sName) {
+          if (row[0] && !/^[\d,\s-]+$/.test(row[0]) && !/grand\s*total|sn\.?|cycle/i.test(row[0])) {
+            sName = row[0];
+            cId = row[1] || '';
+            count = row[2] || '';
+          } else if (row[1] && !/^[\d,\s-]+$/.test(row[1]) && !/grand\s*total|staff/i.test(row[1])) {
+            cId = row[0] || '';
+            sName = row[1];
+            desc = row[2] || '';
+          }
+        }
+
         if (desc && desc !== '—' && !/^no\s+/i.test(desc)) {
           totalIssuesOrRepairs++;
         }
+
         if (sName && sName !== '—' && !/grand\s*total|staff/i.test(sName)) {
           if (!staffMap.has(sName)) staffMap.set(sName, []);
-          staffMap.get(sName).push(
-            `${sec.title.replace(/^\d+[\.\)]\s*/, '')}: Cycle ${cId}${desc && desc !== '—' ? ` (${desc})` : ''}`
-          );
+          const secClean = sec.title.replace(/^\d+[\.\)]\s*/, '');
+          let entry = `${secClean}: `;
+          if (count && count !== '—') {
+            entry += `${count} cycle(s)${cId ? ` (${cId})` : ''}`;
+          } else if (cId && cId !== '—') {
+            entry += `Cycle ${cId}${desc && desc !== '—' ? ` (${desc})` : ''}`;
+          } else if (desc && desc !== '—') {
+            entry += desc;
+          } else {
+            entry += 'Completed assigned activities';
+          }
+          staffMap.get(sName).push(entry);
         }
       });
-    }
+    });
+
+    // Also parse paragraphs for staff mentions (e.g. "completed by Laxman, Kabir, Anish, Dipesh." or "Staff: Kabir")
+    (sec.paragraphs || []).forEach(p => {
+      const completedByMatch = p.match(/completed by ([^.]+)\./i);
+      if (completedByMatch) {
+        const names = completedByMatch[1].split(/,| and /i).map(n => n.trim()).filter(Boolean);
+        names.forEach(name => {
+          if (!staffMap.has(name)) staffMap.set(name, []);
+          staffMap.get(name).push(`${sec.title.replace(/^\d+[\.\)]\s*/, '')}: Completed routine checks`);
+        });
+      }
+      const staffLineMatch = p.match(/Staff:\s*([^|,\n]+)/i);
+      if (staffLineMatch) {
+        const s = staffLineMatch[1].trim();
+        if (s && !staffMap.has(s)) staffMap.set(s, []);
+        staffMap.get(s).push(`${sec.title.replace(/^\d+[\.\)]\s*/, '')}: Completed assigned checkup`);
+      }
+    });
   });
 
   const staffCount = staffMap.size;
@@ -201,9 +280,11 @@ CRITICAL RULES:
 
   const individual =
     staffMap.size > 0
-      ? Array.from(staffMap.entries()).map(
-          ([name, items]) => `${name}: Logged ${items.length} operational record(s) — ${items.join('; ')}.`
-        )
+      ? Array.from(staffMap.entries()).map(([name, items]) => {
+          // Deduplicate items
+          const uniqueItems = Array.from(new Set(items));
+          return `${name}: ${uniqueItems.join('; ')}.`;
+        })
       : [
           'Operations & Maintenance Team: All shift checkup channels and inspection logs were monitored; no individual staff exceptions were flagged outside the recorded section tables.'
         ];
