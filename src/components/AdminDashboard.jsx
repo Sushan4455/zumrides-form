@@ -52,6 +52,7 @@ export default function AdminDashboard() {
   const [reportFontSize, setReportFontSize] = useState(() => localStorage.getItem('zum_report_font_size') || '14');
   const [liveEditSaveStatus, setLiveEditSaveStatus] = useState(false);
   const logoInputRef = useRef(null);
+  const autoSaveTimerRef = useRef(null);
 
   // Popup states for adding new title, multi-row/column table builder, and reordering titles
   const [showAddTitleModal, setShowAddTitleModal] = useState(false);
@@ -716,18 +717,38 @@ export default function AdminDashboard() {
 
   const REPORT_HTML_STORAGE_KEY = `liveEditHtml_v3_${reportDateKey}`;
 
-  const saveCurrentReportHtml = () => {
+  const saveCurrentReportHtml = (showIndicator = false) => {
     const el = document.getElementById('report-editable-body');
     if (el) {
-      localStorage.setItem(REPORT_HTML_STORAGE_KEY, el.innerHTML);
-      setLiveEditSaveStatus(true);
-      setTimeout(() => setLiveEditSaveStatus(false), 1500);
+      try {
+        localStorage.setItem(REPORT_HTML_STORAGE_KEY, el.innerHTML);
+      } catch (e) {}
+      if (showIndicator) {
+        setLiveEditSaveStatus(true);
+        setTimeout(() => setLiveEditSaveStatus(false), 1200);
+      }
     }
+  };
+
+  const handleReportInput = () => {
+    // Save to localStorage directly without triggering a React re-render while typing
+    const el = document.getElementById('report-editable-body');
+    if (el) {
+      try {
+        localStorage.setItem(REPORT_HTML_STORAGE_KEY, el.innerHTML);
+      } catch (e) {}
+    }
+    // Debounce the visual "Saved" badge so React does not re-render and kill cursor selection on every keypress!
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      setLiveEditSaveStatus(true);
+      setTimeout(() => setLiveEditSaveStatus(false), 1200);
+    }, 1500);
   };
 
   const handleFormat = (command, value = null) => {
     document.execCommand(command, false, value);
-    saveCurrentReportHtml();
+    saveCurrentReportHtml(true);
   };
 
   const handleIncreaseFontSize = () => {
@@ -981,28 +1002,7 @@ export default function AdminDashboard() {
   };
 
   const handleReportBlur = () => {
-    saveCurrentReportHtml();
-    const nodes = getEditableSectionNodes();
-    let hasMismatchedNumbering = false;
-    let expectedNum = 1;
-    nodes.forEach(node => {
-      const heading = node.querySelector('h3, h2');
-      if (heading) {
-        const text = heading.innerText.trim();
-        const clean = text.replace(/^\d+[\.\)]\s*/, '').trim();
-        if (clean) {
-          const match = text.match(/^(\d+)[\.\)]\s*(.*)/);
-          if (!match || parseInt(match[1], 10) !== expectedNum) {
-            hasMismatchedNumbering = true;
-          }
-          expectedNum++;
-        }
-      }
-    });
-
-    if (hasMismatchedNumbering) {
-      handleAutoNumberReportSections();
-    }
+    saveCurrentReportHtml(true);
   };
 
   const getActiveOrLastReportTable = () => {
@@ -1208,7 +1208,11 @@ export default function AdminDashboard() {
         return;
       }
       const el = document.getElementById('report-editable-body');
-      if (el) el.innerHTML = savedHtml;
+      if (el) {
+        // Strip any legacy embedded report-header from savedHtml
+        const cleanSavedHtml = savedHtml.replace(/<div class="report-header[^>]*>[\s\S]*?<\/div>\s*<\/div>/i, '');
+        el.innerHTML = cleanSavedHtml;
+      }
     }
   }, [isLiveEditMode, reportDateKey, activeTab, routineStaff]);
 
@@ -3082,6 +3086,19 @@ export default function AdminDashboard() {
                 </div>
               )}
 
+              {/* Header (Always fixed, pristine & non-editable header so cursor never jumps into it) */}
+              <div 
+                className="report-header flex flex-col sm:flex-row justify-between items-start sm:items-end border-b-2 border-gray-900 pb-4 mb-6 gap-3 select-none"
+                contentEditable={false}
+              >
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: "'Play', sans-serif" }}>Daily Operations Report</h2>
+                  <p className="text-sm text-gray-900" style={{ fontFamily: "'Play', sans-serif" }}>Date: {todayStr} &nbsp;|&nbsp; Prepared by: Automated System</p>
+                </div>
+                <div className="text-right text-xs text-gray-900 shrink-0 font-medium" style={{ fontFamily: "'Play', sans-serif" }}>Zum Operations</div>
+              </div>
+
+              {/* Editable Report Body */}
               <div
                 id="report-editable-body"
                 className="outline-none"
@@ -3093,22 +3110,13 @@ export default function AdminDashboard() {
                     e.preventDefault();
                     const text = e.clipboardData.getData('text/plain');
                     document.execCommand('insertText', false, text);
-                    saveCurrentReportHtml();
+                    saveCurrentReportHtml(true);
                   }
                 }}
-                onInput={saveCurrentReportHtml}
+                onInput={handleReportInput}
                 onBlur={handleReportBlur}
               >
-                {/* Header */}
-                <div className="report-header flex flex-col sm:flex-row justify-between items-start sm:items-end border-b-2 border-gray-900 pb-4 mb-6 gap-3">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: "'Play', sans-serif" }}>Daily Operations Report</h2>
-                    <p className="text-sm text-gray-900" style={{ fontFamily: "'Play', sans-serif" }}>Date: {todayStr} &nbsp;|&nbsp; Prepared by: Automated System</p>
-                  </div>
-                  <div className="text-right text-xs text-gray-900 shrink-0 font-medium" style={{ fontFamily: "'Play', sans-serif" }}>Zum Operations</div>
-                </div>
-
-              {/* Section 1: Executive Summary */}
+                {/* Section 1: Executive Summary */}
               <div className="mb-12 break-inside-avoid">
                 <h3 className="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2">1. Executive Operations Summary</h3>
                 {overrides.executive.trim() ? (
