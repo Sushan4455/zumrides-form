@@ -70,11 +70,6 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       return {};
     }
   });
-  const [routineBlankPaper, setRoutineBlankPaper] = useState(() => localStorage.getItem('zum_routine_blank_paper') || '');
-  const [showRoutineAssignPad, setShowRoutineAssignPad] = useState(false);
-  const [quickAssignName, setQuickAssignName] = useState(staffName || '');
-  const [quickAssignCycles, setQuickAssignCycles] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
 
   // For Maintenance - known issues lookup
   const [cycleIssues, setCycleIssues] = useState({});
@@ -268,63 +263,6 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       const combined = [...existingNonEmpty, ...newItems];
       return combined.length > 0 ? combined : prev;
     });
-  };
-
-  const handleSaveQuickRoutineAssignment = async () => {
-    const targetName = (quickAssignName || staffName || '').trim();
-    const parsedCycles = quickAssignCycles.split(/[,;\s]+/).map(c => c.trim()).filter(Boolean);
-    if (!targetName || parsedCycles.length === 0) {
-      alert("Please enter a staff name and at least one cycle ID.");
-      return;
-    }
-
-    const updatedMap = { ...allRoutineAssignments };
-    const existing = updatedMap[targetName]
-      ? String(updatedMap[targetName]).split(',').map(c => c.trim()).filter(Boolean)
-      : [];
-    const mergedStr = [...new Set([...existing, ...parsedCycles])].join(', ');
-    updatedMap[targetName] = mergedStr;
-
-    setAllRoutineAssignments(updatedMap);
-    try {
-      localStorage.setItem('zum_assignments_latest', JSON.stringify(updatedMap));
-    } catch (e) {}
-
-    if (targetName.toLowerCase() === (staffName || '').trim().toLowerCase()) {
-      setAssignedCycles(mergedStr.split(',').map(c => c.trim()).filter(Boolean));
-    }
-
-    // Load into form immediately if assigning for current staff
-    if (targetName.toLowerCase() === (staffName || '').trim().toLowerCase()) {
-      handleLoadCyclesIntoForm(parsedCycles);
-    }
-
-    setQuickAssignCycles('');
-
-    // Save in background to Google Sheets & Supabase
-    try {
-      const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
-      const formData = new FormData();
-      formData.append('data', JSON.stringify({
-        action: 'assign',
-        staffName: targetName,
-        cycles: mergedStr
-      }));
-      fetch(APPS_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: formData }).catch(() => {});
-      await supabase.from('assignments').insert({ staff_name: targetName, cycles: mergedStr });
-    } catch (e) {}
-  };
-
-  const handleRemoveAssignedStaff = (targetStaff) => {
-    const updatedMap = { ...allRoutineAssignments };
-    delete updatedMap[targetStaff];
-    setAllRoutineAssignments(updatedMap);
-    try {
-      localStorage.setItem('zum_assignments_latest', JSON.stringify(updatedMap));
-    } catch (e) {}
-    if (targetStaff.toLowerCase() === (staffName || '').trim().toLowerCase()) {
-      setAssignedCycles([]);
-    }
   };
 
   const addCycle = () => {
