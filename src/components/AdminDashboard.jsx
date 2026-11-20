@@ -141,6 +141,92 @@ export default function AdminDashboard() {
   const [isLoadingRepairedIssues, setIsLoadingRepairedIssues] = useState(false);
   const [repairedSearch, setRepairedSearch] = useState('');
 
+  // Formatting Data safely & Derived State (computed at top level so all hooks & effects can safely access them)
+  const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  
+  const routineStaff = data?.routine ? Object.keys(data.routine) : [];
+  const pretaskStaff = data?.pretask ? Object.keys(data.pretask) : [];
+  const stationRows = data?.station?.cycles || [];
+  const overallRows = data?.overall?.cycles || [];
+  const maintenance = data?.maintenance || [];
+
+  // Helper: get cycle IDs array from full row objects
+  const cycleIds = (rows) => rows.map(r => r.cycle_id || r).join(', ');
+  
+  const renderCycleGroup = (rows) => {
+    const list = rows.map(r => {
+      if (r.condition === 'issue') {
+        const parts = r.issue || r.parts_checked;
+        return parts ? `${r.cycle_id} (${parts})` : r.cycle_id;
+      }
+      return r.cycle_id;
+    });
+    return <>{list.join(', ')}</>;
+  };
+  const recordLabel = (count, singular) => {
+    if (count === 1) return `${count} ${singular}`;
+    const plural = singular.endsWith('activity') || singular.endsWith('entry')
+      ? `${singular.slice(0, -1)}ies`
+      : `${singular}s`;
+    return `${count} ${plural}`;
+  };
+  const issueCount = (rows) => rows.filter(row => row.condition === 'issue').length;
+  const routineTotal = routineStaff.reduce((sum, staff) => sum + (data.routine[staff] || []).length, 0);
+  const pretaskTotal = pretaskStaff.reduce((sum, staff) => sum + (data.pretask[staff] || []).length, 0);
+  const overallIssueCount = issueCount(overallRows);
+  const stationIssueCount = issueCount(stationRows);
+  const routineIssueRows = routineStaff.flatMap(staff =>
+    (data.routine[staff] || [])
+      .filter(r => r.condition === 'issue')
+      .map(r => ({ ...r, staff_name: r.staff_name || staff }))
+  );
+  const pretaskIssueRows = pretaskStaff.flatMap(staff =>
+    (data.pretask[staff] || [])
+      .filter(r => r.condition === 'issue')
+      .map(r => ({ ...r, staff_name: r.staff_name || staff }))
+  );
+  const overallIssueRows = overallRows.filter(r => r.condition === 'issue');
+  const stationIssueRows = stationRows.filter(r => r.condition === 'issue');
+  const staffWork = new Map();
+  const addStaffWork = (staff, description) => {
+    if (!staff) return;
+    if (!staffWork.has(staff)) staffWork.set(staff, []);
+    staffWork.get(staff).push(description);
+  };
+
+  routineStaff.forEach(staff => {
+    const rows = data.routine[staff] || [];
+    const issues = issueCount(rows);
+    addStaffWork(staff, `completed ${recordLabel(rows.length, 'routine checkup')}${issues > 0 ? `, with ${recordLabel(issues, 'issue')} recorded for follow-up` : ', with all submitted entries marked in good condition'}`);
+  });
+  pretaskStaff.forEach(staff => {
+    const rows = data.pretask[staff] || [];
+    const issues = issueCount(rows);
+    addStaffWork(staff, `completed ${recordLabel(rows.length, 'pre-task cross check')}${issues > 0 ? ` and recorded ${recordLabel(issues, 'issue')}` : ' without a recorded issue'}`);
+  });
+  if (overallRows.length > 0) addStaffWork(data.overall.staff, `completed ${recordLabel(overallRows.length, 'overall cycle inspection')}`);
+  if (stationRows.length > 0) addStaffWork(data.station.staff, `completed ${recordLabel(stationRows.length, 'station inspection')}`);
+  const maintenanceByStaff = maintenance.reduce((totals, item) => {
+    const staff = item.staffName || 'Maintenance Team';
+    totals[staff] = (totals[staff] || 0) + 1;
+    return totals;
+  }, {});
+  Object.entries(maintenanceByStaff).forEach(([staff, count]) => {
+    addStaffWork(staff, `completed ${recordLabel(count, 'mechanical maintenance activity')}`);
+  });
+
+  const sectionTitles = {
+    executive: "1. Executive Operations Summary",
+    routine: "2. Routine Cycle Checkups",
+    pretask: "3. Pre-Task Cross Check",
+    overall: "4. Overall Cycle Checkup",
+    station: "5. Station Visit",
+    individual: "6. Individual Staff Work Summary",
+    rider: "7. Rider Data Collection Instructions",
+    mechanical: "8. Mechanical Repair Work",
+    extra: "9. Extra Work & Remarks"
+  };
+
   useEffect(() => {
     fetchPostponements();
   }, []);
@@ -1591,92 +1677,6 @@ export default function AdminDashboard() {
       </div>
     );
   }
-
-  // Formatting Data safely
-  const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  
-  const routineStaff = data?.routine ? Object.keys(data.routine) : [];
-  const pretaskStaff = data?.pretask ? Object.keys(data.pretask) : [];
-  const stationRows = data?.station?.cycles || [];
-  const overallRows = data?.overall?.cycles || [];
-  const maintenance = data?.maintenance || [];
-
-  // Helper: get cycle IDs array from full row objects
-  const cycleIds = (rows) => rows.map(r => r.cycle_id || r).join(', ');
-  
-  const renderCycleGroup = (rows) => {
-    const list = rows.map(r => {
-      if (r.condition === 'issue') {
-        const parts = r.issue || r.parts_checked;
-        return parts ? `${r.cycle_id} (${parts})` : r.cycle_id;
-      }
-      return r.cycle_id;
-    });
-    return <>{list.join(', ')}</>;
-  };
-  const recordLabel = (count, singular) => {
-    if (count === 1) return `${count} ${singular}`;
-    const plural = singular.endsWith('activity') || singular.endsWith('entry')
-      ? `${singular.slice(0, -1)}ies`
-      : `${singular}s`;
-    return `${count} ${plural}`;
-  };
-  const issueCount = (rows) => rows.filter(row => row.condition === 'issue').length;
-  const routineTotal = routineStaff.reduce((sum, staff) => sum + (data.routine[staff] || []).length, 0);
-  const pretaskTotal = pretaskStaff.reduce((sum, staff) => sum + (data.pretask[staff] || []).length, 0);
-  const overallIssueCount = issueCount(overallRows);
-  const stationIssueCount = issueCount(stationRows);
-  const routineIssueRows = routineStaff.flatMap(staff =>
-    (data.routine[staff] || [])
-      .filter(r => r.condition === 'issue')
-      .map(r => ({ ...r, staff_name: r.staff_name || staff }))
-  );
-  const pretaskIssueRows = pretaskStaff.flatMap(staff =>
-    (data.pretask[staff] || [])
-      .filter(r => r.condition === 'issue')
-      .map(r => ({ ...r, staff_name: r.staff_name || staff }))
-  );
-  const overallIssueRows = overallRows.filter(r => r.condition === 'issue');
-  const stationIssueRows = stationRows.filter(r => r.condition === 'issue');
-  const staffWork = new Map();
-  const addStaffWork = (staff, description) => {
-    if (!staff) return;
-    if (!staffWork.has(staff)) staffWork.set(staff, []);
-    staffWork.get(staff).push(description);
-  };
-
-  routineStaff.forEach(staff => {
-    const rows = data.routine[staff] || [];
-    const issues = issueCount(rows);
-    addStaffWork(staff, `completed ${recordLabel(rows.length, 'routine checkup')}${issues > 0 ? `, with ${recordLabel(issues, 'issue')} recorded for follow-up` : ', with all submitted entries marked in good condition'}`);
-  });
-  pretaskStaff.forEach(staff => {
-    const rows = data.pretask[staff] || [];
-    const issues = issueCount(rows);
-    addStaffWork(staff, `completed ${recordLabel(rows.length, 'pre-task cross check')}${issues > 0 ? ` and recorded ${recordLabel(issues, 'issue')}` : ' without a recorded issue'}`);
-  });
-  if (overallRows.length > 0) addStaffWork(data.overall.staff, `completed ${recordLabel(overallRows.length, 'overall cycle inspection')}`);
-  if (stationRows.length > 0) addStaffWork(data.station.staff, `completed ${recordLabel(stationRows.length, 'station inspection')}`);
-  const maintenanceByStaff = maintenance.reduce((totals, item) => {
-    const staff = item.staffName || 'Maintenance Team';
-    totals[staff] = (totals[staff] || 0) + 1;
-    return totals;
-  }, {});
-  Object.entries(maintenanceByStaff).forEach(([staff, count]) => {
-    addStaffWork(staff, `completed ${recordLabel(count, 'mechanical maintenance activity')}`);
-  });
-
-  const sectionTitles = {
-    executive: "1. Executive Operations Summary",
-    routine: "2. Routine Cycle Checkups",
-    pretask: "3. Pre-Task Cross Check",
-    overall: "4. Overall Cycle Checkup",
-    station: "5. Station Visit",
-    individual: "6. Individual Staff Work Summary",
-    rider: "7. Rider Data Collection Instructions",
-    mechanical: "8. Mechanical Repair Work",
-    extra: "9. Extra Work & Remarks"
-  };
 
   const getUpcomingSchedule = () => {
     const schedule = [];
