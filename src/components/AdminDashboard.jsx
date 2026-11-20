@@ -4,7 +4,7 @@ import {
   Database, Wand2, Loader2, Eye, Trash2, Edit3, AlertTriangle, X, Filter, 
   Wrench, Menu, Bold, Italic, Underline, Type, List, ListOrdered, 
   AlignLeft, AlignCenter, AlignRight, Image as ImageIcon, RotateCcw, 
-  Check, PlusCircle, Sparkles, Table as TableIcon, ArrowUp, ArrowDown, ListFilter 
+  Check, PlusCircle, MinusCircle, Sparkles, Table as TableIcon, ArrowUp, ArrowDown, ListFilter 
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
@@ -720,8 +720,9 @@ export default function AdminDashboard() {
     newSection.className = 'mb-12 break-inside-avoid custom-report-section';
 
     let inner = '';
-    if (newSectionTitle.trim()) {
-      inner += `<h3 class="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2" style="font-family: 'Play', sans-serif;">${newSectionTitle.trim()}</h3>`;
+    const cleanNewTitle = newSectionTitle.trim().replace(/^\d+[\.\)]\s*/, '');
+    if (cleanNewTitle) {
+      inner += `<h3 class="text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2" style="font-family: 'Play', sans-serif;">${cleanNewTitle}</h3>`;
     }
     if (newSectionContent.trim() || !includeTableInNewSection) {
       const bodyText = newSectionContent.trim() || 'Click here to write section details...';
@@ -775,8 +776,8 @@ export default function AdminDashboard() {
       }
     }
 
-    saveCurrentReportHtml();
-    scanReportSections();
+    // Automatically manage and apply numbering to all sections including the new one
+    handleAutoNumberReportSections();
     setShowAddTitleModal(false);
   };
 
@@ -801,8 +802,8 @@ export default function AdminDashboard() {
       el.insertBefore(movingNode, targetNode);
     }
 
-    saveCurrentReportHtml();
-    scanReportSections();
+    // Automatically manage numbering after reordering
+    handleAutoNumberReportSections();
   };
 
   const handleRenameReportSection = (idx, updatedTitle) => {
@@ -814,30 +815,108 @@ export default function AdminDashboard() {
       heading.className = 'text-base font-bold text-gray-900 mb-3 border-b border-gray-900 pb-2';
       nodes[idx].insertBefore(heading, nodes[idx].firstChild);
     }
-    heading.innerText = updatedTitle;
+    const cleanTitle = updatedTitle.trim().replace(/^\d+[\.\)]\s*/, '');
+    const finalTitle = cleanTitle ? `${idx + 1}. ${cleanTitle}` : updatedTitle;
+    heading.innerText = finalTitle;
     saveCurrentReportHtml();
-    setReportSectionsSnapshot(prev => prev.map((s, i) => i === idx ? { ...s, title: updatedTitle } : s));
+    setReportSectionsSnapshot(prev => prev.map((s, i) => i === idx ? { ...s, title: finalTitle } : s));
   };
 
   const handleDeleteReportSection = (idx) => {
     const nodes = getEditableSectionNodes();
     if (!nodes[idx]) return;
     nodes[idx].remove();
-    saveCurrentReportHtml();
-    scanReportSections();
+    // Automatically manage and adjust numbering after removing the section
+    handleAutoNumberReportSections();
   };
 
   const handleAutoNumberReportSections = () => {
     const nodes = getEditableSectionNodes();
-    nodes.forEach((node, idx) => {
+    let currentNum = 1;
+    nodes.forEach((node) => {
       const heading = node.querySelector('h3, h2');
       if (heading) {
-        const cleanTitle = heading.innerText.trim().replace(/^\d+[\.\)]\s*/, '');
-        heading.innerText = `${idx + 1}. ${cleanTitle}`;
+        const rawText = heading.innerText.trim();
+        const cleanTitle = rawText.replace(/^\d+[\.\)]\s*/, '').trim();
+        if (cleanTitle) {
+          heading.innerText = `${currentNum}. ${cleanTitle}`;
+          currentNum++;
+        }
       }
     });
     saveCurrentReportHtml();
     scanReportSections();
+  };
+
+  const handleRemoveActiveSection = () => {
+    const el = document.getElementById('report-editable-body');
+    if (!el) return;
+    const nodes = getEditableSectionNodes();
+    if (nodes.length <= 1) {
+      alert("Cannot remove the only remaining section.");
+      return;
+    }
+
+    let targetSection = null;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      let curr = sel.anchorNode;
+      while (curr && curr !== el) {
+        if (curr.parentNode === el) {
+          targetSection = curr;
+          break;
+        }
+        curr = curr.parentNode;
+      }
+    }
+
+    if (!targetSection && lastClickedTableRef.current) {
+      let curr = lastClickedTableRef.current;
+      while (curr && curr !== el) {
+        if (curr.parentNode === el) {
+          targetSection = curr;
+          break;
+        }
+        curr = curr.parentNode;
+      }
+    }
+
+    if (!targetSection) {
+      handleOpenReorderTitlesModal();
+      return;
+    }
+
+    const heading = targetSection.querySelector('h3, h2');
+    const titleText = heading ? heading.innerText.trim() : 'this section';
+    if (window.confirm(`Remove "${titleText}"? All remaining sections will be automatically renumbered.`)) {
+      targetSection.remove();
+      handleAutoNumberReportSections();
+    }
+  };
+
+  const handleReportBlur = () => {
+    saveCurrentReportHtml();
+    const nodes = getEditableSectionNodes();
+    let hasMismatchedNumbering = false;
+    let expectedNum = 1;
+    nodes.forEach(node => {
+      const heading = node.querySelector('h3, h2');
+      if (heading) {
+        const text = heading.innerText.trim();
+        const clean = text.replace(/^\d+[\.\)]\s*/, '').trim();
+        if (clean) {
+          const match = text.match(/^(\d+)[\.\)]\s*(.*)/);
+          if (!match || parseInt(match[1], 10) !== expectedNum) {
+            hasMismatchedNumbering = true;
+          }
+          expectedNum++;
+        }
+      }
+    });
+
+    if (hasMismatchedNumbering) {
+      handleAutoNumberReportSections();
+    }
   };
 
   const getActiveOrLastReportTable = () => {
@@ -2697,9 +2776,17 @@ export default function AdminDashboard() {
                               type="button"
                               onClick={() => handleOpenAddTitleModal({ tableOnly: false })}
                               className="shrink-0 px-2.5 py-1.5 bg-[#1D1D1F] hover:bg-black text-white rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
-                              title="Add a new title & optional table"
+                              title="Add a new title (numbering managed automatically)"
                             >
                               <PlusCircle size={13} /> Title
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRemoveActiveSection}
+                              className="shrink-0 px-2.5 py-1.5 bg-[#F5F5F7] hover:bg-red-50 text-[#86868B] hover:text-red-600 rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
+                              title="Remove selected title/section and renumber automatically"
+                            >
+                              <MinusCircle size={13} /> - Title
                             </button>
                             <button
                               type="button"
@@ -2713,7 +2800,7 @@ export default function AdminDashboard() {
                               type="button"
                               onClick={handleOpenReorderTitlesModal}
                               className="shrink-0 px-2.5 py-1.5 bg-[#F5F5F7] hover:bg-[#E8E8ED] text-[#1D1D1F] rounded-xl text-[11px] font-medium flex items-center gap-1 transition active:scale-95"
-                              title="Edit titles and choose which title goes where"
+                              title="Manage, reorder, or delete titles (auto-renumbered)"
                             >
                               <ListFilter size={13} /> Reorder
                             </button>
@@ -2969,7 +3056,7 @@ export default function AdminDashboard() {
                   }
                 }}
                 onInput={saveCurrentReportHtml}
-                onBlur={saveCurrentReportHtml}
+                onBlur={handleReportBlur}
               >
                 {/* Header */}
                 <div className="report-header flex flex-col sm:flex-row justify-between items-start sm:items-end border-b-2 border-gray-900 pb-4 mb-6 gap-3">
@@ -3401,11 +3488,11 @@ export default function AdminDashboard() {
               {/* 1. Title Name */}
               <div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#86868B] mb-1.5">
-                  Title / Section Heading (Optional if only adding a table)
+                  Title / Section Heading (Number is managed automatically)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. 12. Special Fleet Inspection"
+                  placeholder="e.g. Special Fleet Inspection (number is managed automatically)"
                   value={newSectionTitle}
                   onChange={e => setNewSectionTitle(e.target.value)}
                   className="w-full p-3.5 rounded-2xl bg-[#F5F5F7] border border-transparent focus:bg-white focus:border-black/15 outline-none focus:ring-2 focus:ring-black/5 text-sm text-[#1D1D1F] font-semibold transition"
@@ -3635,7 +3722,7 @@ export default function AdminDashboard() {
                   </span>
                   <input
                     type="text"
-                    value={sec.title}
+                    value={sec.title.replace(/^\d+[\.\)]\s*/, '')}
                     onChange={e => handleRenameReportSection(idx, e.target.value)}
                     className="flex-1 min-w-0 bg-white px-3 py-2 rounded-xl border border-black/[0.06] text-xs sm:text-sm font-medium text-[#1D1D1F] outline-none focus:ring-2 focus:ring-black/10"
                   />
@@ -3661,12 +3748,12 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (window.confirm(`Remove section "${sec.title}" from this report?`)) {
+                        if (window.confirm(`Remove section "${sec.title}"? All remaining titles will be automatically renumbered.`)) {
                           handleDeleteReportSection(idx);
                         }
                       }}
                       className="p-1.5 rounded-lg bg-white border border-black/[0.06] text-[#86868B] hover:text-red-600 hover:bg-red-50 transition"
-                      title="Delete Section"
+                      title="Delete Section (Auto-renumbers remaining)"
                     >
                       <Trash2 size={14} />
                     </button>
