@@ -59,9 +59,21 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSwapReady, setIsSwapReady] = useState(false);
   
-  // For Pre-Task
+  // For Pre-Task & Routine Assignments + Blank Paper
   const [eligibleCycles, setEligibleCycles] = useState([]);
   const [assignedCycles, setAssignedCycles] = useState([]);
+  const [allRoutineAssignments, setAllRoutineAssignments] = useState(() => {
+    try {
+      const saved = localStorage.getItem('zum_assignments_latest');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [routineBlankPaper, setRoutineBlankPaper] = useState(() => localStorage.getItem('zum_routine_blank_paper') || '');
+  const [showRoutineAssignPad, setShowRoutineAssignPad] = useState(false);
+  const [quickAssignName, setQuickAssignName] = useState(staffName || '');
+  const [quickAssignCycles, setQuickAssignCycles] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
 
   // For Maintenance - known issues lookup
@@ -99,22 +111,82 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         const { start, end } = getCurrentShiftWindow();
         
         try {
-          // Fetch assignments for routine
-          const { data: assignData } = await supabase
-            .from('assignments')
-            .select('cycles')
-            .eq('staff_name', staffName)
-            .gte('created_at', start)
-            .lt('created_at', end)
-            .order('created_at', { ascending: false })
-            .limit(1);
+          // Load local assignments first so it works offline or when Supabase is paused
+          let mergedMap = {};
+          try {
+            const raw = localStorage.getItem('zum_assignments_latest');
+            if (raw) mergedMap = { ...JSON.parse(raw) };
+          } catch (e) {}
 
-          if (assignData && assignData.length > 0) {
-            const arr = assignData[0].cycles.split(',').map(c => c.trim()).filter(Boolean);
+          const applyStaffAssignedCycles = (mapObj) => {
+            const staffMatch = Object.keys(mapObj).find(
+              k => k.trim().toLowerCase() === (staffName || '').trim().toLowerCase()
+            );
+            const arr = staffMatch
+              ? String(mapObj[staffMatch]).split(/[,;\s]+/).map(c => c.trim()).filter(Boolean)
+              : [];
             setAssignedCycles(arr);
-          } else {
-            setAssignedCycles([]);
-          }
+
+            // Auto-populate the Routine form fields if the user hasn't typed anything yet
+            if (taskType === 'routine' && arr.length > 0) {
+              setCycles(prev => {
+                const isBlankDraft = prev.length === 1 && (!prev[0].cycleId || !prev[0].cycleId.trim());
+                if (!isBlankDraft) return prev;
+                return arr.map((cId, i) => ({
+                  id: Date.now() + i + Math.random(),
+                  cycleId: cId,
+                  condition: 'good',
+                  issue: '',
+                  partsChecked: [],
+                  category: '',
+                  fixDescription: '',
+                  odometer: '',
+                  status: 'Repaired'
+                }));
+              });
+            }
+          };
+
+          applyStaffAssignedCycles(mergedMap);
+
+          // 1. Fetch assignments from Google Sheets (works across devices even when Supabase is paused)
+          try {
+            const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
+            const sheetRes = await fetch(APPS_SCRIPT_URL);
+            const sheetJson = await sheetRes.json();
+            if (sheetJson && sheetJson.assignments && typeof sheetJson.assignments === 'object') {
+              Object.entries(sheetJson.assignments).forEach(([sName, cList]) => {
+                const str = Array.isArray(cList) ? cList.join(', ') : String(cList || '');
+                if (str.trim() && !mergedMap[sName]) {
+                  mergedMap[sName] = str;
+                }
+              });
+            }
+          } catch (e) {}
+
+          // 2. Fetch assignments for routine from Supabase
+          try {
+            const { data: assignData } = await supabase
+              .from('assignments')
+              .select('staff_name, cycles')
+              .gte('created_at', start)
+              .lt('created_at', end)
+              .order('created_at', { ascending: false });
+
+            if (assignData && assignData.length > 0) {
+              assignData.forEach(row => {
+                if (row.staff_name && row.cycles) {
+                  mergedMap[row.staff_name] = row.cycles;
+                }
+              });
+            }
+          } catch (e) {}
+
+          setAllRoutineAssignments(mergedMap);
+          try {
+            localStorage.setItem('zum_assignments_latest', JSON.stringify(mergedMap));
+          } catch (e) {}
+          applyStaffAssignedCycles(mergedMap);
 
           // Fetch all cycles interacted with during the current shift
           const { data: allData } = await supabase
@@ -170,6 +242,90 @@ export default function TaskForm({ taskType, staffName, onBack }) {
     
     fetchDependencies();
   }, [taskType, staffName]);
+
+  const handleLoadCyclesIntoForm = (cycleStringOrArray) => {
+    const list = Array.isArray(cycleStringOrArray)
+      ? cycleStringOrArray
+      : String(cycleStringOrArray).split(/[,;\s]+/).map(c => c.trim()).filter(Boolean);
+    if (list.length === 0) return;
+
+    setCycles(prev => {
+      const existingNonEmpty = prev.filter(c => c.cycleId && c.cycleId.trim() !== '');
+      const existingIds = new Set(existingNonEmpty.map(c => c.cycleId.trim()));
+      const newItems = list
+        .filter(cId => !existingIds.has(cId))
+        .map((cId, i) => ({
+          id: Date.now() + i + Math.random(),
+          cycleId: cId,
+          condition: 'good',
+          issue: '',
+          partsChecked: [],
+          category: '',
+          fixDescription: '',
+          odometer: '',
+          status: 'Repaired'
+        }));
+      const combined = [...existingNonEmpty, ...newItems];
+      return combined.length > 0 ? combined : prev;
+    });
+  };
+
+  const handleSaveQuickRoutineAssignment = async () => {
+    const targetName = (quickAssignName || staffName || '').trim();
+    const parsedCycles = quickAssignCycles.split(/[,;\s]+/).map(c => c.trim()).filter(Boolean);
+    if (!targetName || parsedCycles.length === 0) {
+      alert("Please enter a staff name and at least one cycle ID.");
+      return;
+    }
+
+    const updatedMap = { ...allRoutineAssignments };
+    const existing = updatedMap[targetName]
+      ? String(updatedMap[targetName]).split(',').map(c => c.trim()).filter(Boolean)
+      : [];
+    const mergedStr = [...new Set([...existing, ...parsedCycles])].join(', ');
+    updatedMap[targetName] = mergedStr;
+
+    setAllRoutineAssignments(updatedMap);
+    try {
+      localStorage.setItem('zum_assignments_latest', JSON.stringify(updatedMap));
+    } catch (e) {}
+
+    if (targetName.toLowerCase() === (staffName || '').trim().toLowerCase()) {
+      setAssignedCycles(mergedStr.split(',').map(c => c.trim()).filter(Boolean));
+    }
+
+    // Load into form immediately if assigning for current staff
+    if (targetName.toLowerCase() === (staffName || '').trim().toLowerCase()) {
+      handleLoadCyclesIntoForm(parsedCycles);
+    }
+
+    setQuickAssignCycles('');
+
+    // Save in background to Google Sheets & Supabase
+    try {
+      const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
+      const formData = new FormData();
+      formData.append('data', JSON.stringify({
+        action: 'assign',
+        staffName: targetName,
+        cycles: mergedStr
+      }));
+      fetch(APPS_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: formData }).catch(() => {});
+      await supabase.from('assignments').insert({ staff_name: targetName, cycles: mergedStr });
+    } catch (e) {}
+  };
+
+  const handleRemoveAssignedStaff = (targetStaff) => {
+    const updatedMap = { ...allRoutineAssignments };
+    delete updatedMap[targetStaff];
+    setAllRoutineAssignments(updatedMap);
+    try {
+      localStorage.setItem('zum_assignments_latest', JSON.stringify(updatedMap));
+    } catch (e) {}
+    if (targetStaff.toLowerCase() === (staffName || '').trim().toLowerCase()) {
+      setAssignedCycles([]);
+    }
+  };
 
   const addCycle = () => {
     setCycles([...cycles, { id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
@@ -538,25 +694,25 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             {allSelected ? 'Deselect All' : 'Select All'}
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
           {PARTS_LIST.map(p => {
             const isChecked = cycle.partsChecked.includes(p.name);
             return (
               <label 
                 key={p.name} 
-                className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-all duration-200 border ${
+                className={`flex items-center space-x-2 sm:space-x-3 p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all duration-200 border min-h-[44px] ${
                   isChecked ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50'
                 }`}
               >
                 <input 
                   type="checkbox" 
-                  className="rounded text-gray-900 focus:ring-gray-900 w-4 h-4 cursor-pointer"
+                  className="rounded text-gray-900 focus:ring-gray-900 w-4 h-4 cursor-pointer shrink-0"
                   checked={isChecked}
                   onChange={() => togglePart(cycle.id, p.name)}
                 />
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: p.color }}></span>
-                  <span className={`text-sm ${isChecked ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                  <span className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0" style={{ backgroundColor: p.color }}></span>
+                  <span className={`text-xs sm:text-sm truncate ${isChecked ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
                     {p.name}
                   </span>
                 </div>
@@ -589,6 +745,175 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       </div>
 
       <div className="w-full h-px bg-gray-900 mb-6"></div>
+
+      {taskType === 'routine' && (
+        <div className="mb-6 flex flex-col gap-3">
+          {/* Assigned Cycles Quick Banner for Current Staff */}
+          {assignedCycles.length > 0 && (
+            <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-900">
+                  Assigned Cycles for {staffName} ({assignedCycles.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleLoadCyclesIntoForm(assignedCycles)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition active:scale-95 shadow-2xs"
+                >
+                  Load All ({assignedCycles.length}) Cycles at Once
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {assignedCycles.map((cId, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleLoadCyclesIntoForm([cId])}
+                    className="px-2.5 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 transition active:scale-95"
+                    title="Tap to add this cycle to form"
+                  >
+                    + #{cId}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Toggleable Routine Cycle Assigner & Blank Paper Pad (Mobile & Desktop) */}
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-2xs overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowRoutineAssignPad(!showRoutineAssignPad)}
+              className="w-full px-4 py-3 bg-gray-100/80 hover:bg-gray-100 flex items-center justify-between text-left transition"
+            >
+              <div>
+                <span className="text-sm font-bold text-gray-900 block">
+                  Assign Single / Multiple Cycles & Blank Paper
+                </span>
+                <span className="text-xs text-gray-500">
+                  Add name & cycles at one time or write on the shared blank paper
+                </span>
+              </div>
+              <span className="px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-xs font-bold text-gray-700">
+                {showRoutineAssignPad ? 'Hide' : 'Open'}
+              </span>
+            </button>
+
+            {showRoutineAssignPad && (
+              <div className="p-4 flex flex-col gap-4 border-t border-gray-100">
+                {/* Assign Name + Single or Multiple Cycles at Once */}
+                <div className="flex flex-col gap-2.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    Assign Single or Multiple Cycles to Staff
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Staff Name (e.g. Kabir)"
+                      value={quickAssignName}
+                      onChange={e => setQuickAssignName(e.target.value)}
+                      className="w-full p-3 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-sm text-gray-900"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Cycle IDs (e.g. 101 or 101, 55, 89)"
+                      value={quickAssignCycles}
+                      onChange={e => setQuickAssignCycles(e.target.value)}
+                      className="w-full p-3 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-sm text-gray-900"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveQuickRoutineAssignment}
+                      className="flex-1 sm:flex-initial px-4 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-bold transition active:scale-95"
+                    >
+                      Assign & Add Cycles
+                    </button>
+                    {quickAssignCycles.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleLoadCyclesIntoForm(quickAssignCycles);
+                          setQuickAssignCycles('');
+                        }}
+                        className="flex-1 sm:flex-initial px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition active:scale-95"
+                      >
+                        Load Cycles directly into Form
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* All Assigned Staff List (Editable) */}
+                {Object.keys(allRoutineAssignments).length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                      Current Cycle Assignments
+                    </span>
+                    <div className="flex flex-col gap-1.5">
+                      {Object.entries(allRoutineAssignments).map(([sName, sCycles]) => (
+                        <div key={sName} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gray-50 border border-gray-100 text-xs">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-bold text-gray-900">{sName}: </span>
+                            <span className="text-gray-700 font-medium">{sCycles}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuickAssignName(sName);
+                                setQuickAssignCycles(sCycles);
+                              }}
+                              className="px-2 py-1 rounded bg-white border border-gray-200 text-gray-700 font-semibold hover:bg-gray-100"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleLoadCyclesIntoForm(sCycles)}
+                              className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100"
+                            >
+                              Load
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAssignedStaff(sName)}
+                              className="p-1 text-red-500 hover:bg-red-50 rounded"
+                              title="Remove"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Shared Blank Paper Notepad */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    Blank Paper — Routine Notes & Instructions (Editable)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={routineBlankPaper}
+                    onChange={e => {
+                      setRoutineBlankPaper(e.target.value);
+                      try {
+                        localStorage.setItem('zum_routine_blank_paper', e.target.value);
+                      } catch (err) {}
+                    }}
+                    placeholder="Write anything here like a blank paper (synced with Admin Panel)..."
+                    className="w-full p-3.5 rounded-xl border-2 border-amber-200/80 bg-[#fffef9] text-sm text-gray-900 outline-none focus:ring-2 focus:ring-amber-400 leading-relaxed"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {cycles.map((cycle, index) => (
         <div key={cycle.id} className="mb-6 bg-transparent relative">
@@ -750,46 +1075,25 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           ) : (
             <>
               <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Cycle ID</label>
-                {(taskType === 'routine' && assignedCycles.length > 0) ? (
-                  <div className="flex flex-col gap-2">
-                    <select required className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.isManualId ? 'MANUAL' : cycle.cycleId} onChange={e => {
-                      if (e.target.value === 'MANUAL') {
-                        updateCycle(cycle.id, 'isManualId', true);
-                        updateCycle(cycle.id, 'cycleId', '');
-                      } else {
-                        updateCycle(cycle.id, 'isManualId', false);
-                        updateCycle(cycle.id, 'cycleId', e.target.value);
-                      }
-                    }}>
-                      <option value="" disabled>Select Cycle...</option>
-                      
-                      {assignedCycles.length > 0 && (
-                        <optgroup label="Assigned to You">
-                          {assignedCycles.map((cId, i) => (
-                            <option key={`assign-${i}`} value={cId}>{cId}</option>
-                          ))}
-                        </optgroup>
-                      )}
-
-                      {eligibleCycles.length > 0 && (
-                        <optgroup label="Your Pre-Task Cycles">
-                          {eligibleCycles.map((c, i) => (
-                            <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>
-                               {c.cycleId || c.cycle_id}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                      
-                      <option value="MANUAL">+ Enter custom cycle ID...</option>
-                    </select>
-                    {cycle.isManualId && (
-                      <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 mt-1" placeholder="Enter Cycle ID" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} autoFocus />
-                    )}
-                  </div>
-                ) : (
-                  <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. CYC-100" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
+                <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
+                <input
+                  required
+                  type="text"
+                  list={`cycle-suggestions-${cycle.id}`}
+                  className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 font-medium"
+                  placeholder="e.g. 101"
+                  value={cycle.cycleId}
+                  onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)}
+                />
+                {(assignedCycles.length > 0 || eligibleCycles.length > 0) && (
+                  <datalist id={`cycle-suggestions-${cycle.id}`}>
+                    {assignedCycles.map((cId, i) => (
+                      <option key={`assign-${i}`} value={cId}>{cId} (Assigned)</option>
+                    ))}
+                    {eligibleCycles.map((c, i) => (
+                      <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>{c.cycleId || c.cycle_id}</option>
+                    ))}
+                  </datalist>
                 )}
               </div>
               
@@ -826,8 +1130,8 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         </button>
       )}
 
-      <div className="flex justify-end gap-3 mt-8 border-t border-gray-100 pt-6">
-        <button type="button" onClick={onBack} className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">
+      <div className="flex flex-wrap sm:flex-nowrap justify-between sm:justify-end gap-2.5 mt-8 border-t border-gray-100 pt-6">
+        <button type="button" onClick={onBack} className="flex-1 sm:flex-initial px-5 py-3 sm:py-2.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition text-center min-h-[44px]">
           Back
         </button>
         <button type="button" onClick={() => {
@@ -838,11 +1142,11 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           }
           setSaveMsg('');
           setSaveError('');
-        }} className="px-5 py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition">
+        }} className="flex-1 sm:flex-initial px-5 py-3 sm:py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition text-center min-h-[44px]">
           Clear
         </button>
         {taskType !== 'battery_swap' && (
-          <button type="submit" disabled={isSubmitting} className="px-8 py-2.5 bg-gray-900 text-white rounded-full text-sm font-medium hover:bg-black transition shadow-sm disabled:opacity-50">
+          <button type="submit" disabled={isSubmitting} className="w-full sm:w-auto px-8 py-3 sm:py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold hover:bg-black transition shadow-sm disabled:opacity-50 text-center min-h-[44px]">
             {isSubmitting ? 'Saving...' : (taskType === 'home_battery_swap' ? 'Save Swap' : 'Save')}
           </button>
         )}

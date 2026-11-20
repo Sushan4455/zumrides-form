@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 
 export default function FeedbackForm({ staffName, onBack }) {
   const [cycleId, setCycleId] = useState('');
+  const [personName, setPersonName] = useState('');
   const [feedback, setFeedback] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
@@ -14,6 +15,7 @@ export default function FeedbackForm({ staffName, onBack }) {
     if (isSubmitting) return;
 
     const cleanedCycleId = cycleId.trim();
+    const cleanedPersonName = personName.trim();
     const cleanedFeedback = feedback.trim();
     if (!staffName.trim() || !cleanedCycleId || !cleanedFeedback) {
       setSaveError('Please enter a cycle ID and feedback.');
@@ -28,6 +30,7 @@ export default function FeedbackForm({ staffName, onBack }) {
       const { error } = await supabase.from('cycle_feedback').insert({
         staff_name: staffName.trim(),
         cycle_id: cleanedCycleId,
+        name: cleanedPersonName,
         feedback: cleanedFeedback,
       });
       if (error) throw error;
@@ -39,6 +42,7 @@ export default function FeedbackForm({ staffName, onBack }) {
         feedback: [{
           staff_name: staffName.trim(),
           cycle_id: cleanedCycleId,
+          name: cleanedPersonName,
           feedback: cleanedFeedback
         }]
       };
@@ -52,6 +56,7 @@ export default function FeedbackForm({ staffName, onBack }) {
       }).catch(console.error);
 
       setCycleId('');
+      setPersonName('');
       setFeedback('');
       setSaveMsg('Feedback saved successfully!');
     } catch (error) {
@@ -76,15 +81,21 @@ export default function FeedbackForm({ staffName, onBack }) {
           className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" />
       </div>
       <div className="mb-4">
+        <label htmlFor="feedback-name" className="block text-sm text-gray-500 mb-1">Name (Optional)</label>
+        <input id="feedback-name" type="text" maxLength={100} value={personName}
+          onChange={(event) => setPersonName(event.target.value)} placeholder="e.g. John Doe"
+          className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" />
+      </div>
+      <div className="mb-4">
         <label htmlFor="cycle-feedback" className="block text-sm text-gray-500 mb-1">Feedback</label>
         <textarea id="cycle-feedback" required rows={5} maxLength={2000} value={feedback}
           onChange={(event) => setFeedback(event.target.value)} placeholder="Write your feedback about this cycle..."
           className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" />
       </div>
-      <div className="flex justify-end gap-3 mt-8 border-t border-gray-100 pt-6">
-        <button type="button" onClick={onBack} className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">Back</button>
-        <button type="button" onClick={() => { setCycleId(''); setFeedback(''); setSaveMsg(''); setSaveError(''); }} className="px-5 py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition">Clear</button>
-        <button type="submit" disabled={isSubmitting} className="px-8 py-2.5 bg-gray-900 text-white rounded-full text-sm font-medium hover:bg-black transition shadow-sm disabled:opacity-50">{isSubmitting ? 'Saving...' : 'Save'}</button>
+      <div className="flex flex-wrap sm:flex-nowrap justify-between sm:justify-end gap-2.5 mt-8 border-t border-gray-100 pt-6">
+        <button type="button" onClick={onBack} className="flex-1 sm:flex-initial px-5 py-3 sm:py-2.5 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition text-center min-h-[44px]">Back</button>
+        <button type="button" onClick={() => { setCycleId(''); setPersonName(''); setFeedback(''); setSaveMsg(''); setSaveError(''); }} className="flex-1 sm:flex-initial px-5 py-3 sm:py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition text-center min-h-[44px]">Clear</button>
+        <button type="submit" disabled={isSubmitting} className="w-full sm:w-auto px-8 py-3 sm:py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold hover:bg-black transition shadow-sm disabled:opacity-50 text-center min-h-[44px]">{isSubmitting ? 'Saving...' : 'Save'}</button>
       </div>
       {saveMsg && <div role="status" className="mt-5 flex justify-center"><span className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-full text-sm font-medium shadow-sm"><Check size={16} className="text-green-400" />{saveMsg}</span></div>}
       {saveError && <div role="alert" className="mt-5 flex justify-center"><span className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-700 rounded-full text-sm font-medium border border-red-200"><AlertCircle size={16} />{saveError}</span></div>}
