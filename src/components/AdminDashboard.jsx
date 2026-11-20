@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Home, ClipboardList, Calendar, Users, FileText, Settings, Search, Plus, 
   Database, Wand2, Loader2, Eye, Trash2, Edit3, AlertTriangle, X, Filter, 
@@ -50,7 +50,6 @@ export default function AdminDashboard() {
   });
   const [reportLogoSize, setReportLogoSize] = useState(() => localStorage.getItem('zum_report_logo_size') || '56');
   const [reportFontSize, setReportFontSize] = useState(() => localStorage.getItem('zum_report_font_size') || '14');
-  const [liveEditSaveStatus, setLiveEditSaveStatus] = useState(false);
   const logoInputRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
   const undoStackRef = useRef([]);
@@ -146,11 +145,11 @@ export default function AdminDashboard() {
   // Formatting Data safely & Derived State (computed at top level so all hooks & effects can safely access them)
   const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   
-  const routineStaff = data?.routine ? Object.keys(data.routine) : [];
-  const pretaskStaff = data?.pretask ? Object.keys(data.pretask) : [];
-  const stationRows = data?.station?.cycles || [];
-  const overallRows = data?.overall?.cycles || [];
-  const maintenance = data?.maintenance || [];
+  const routineStaff = useMemo(() => (data?.routine ? Object.keys(data.routine) : []), [data?.routine]);
+  const pretaskStaff = useMemo(() => (data?.pretask ? Object.keys(data.pretask) : []), [data?.pretask]);
+  const stationRows = useMemo(() => data?.station?.cycles || [], [data?.station?.cycles]);
+  const overallRows = useMemo(() => data?.overall?.cycles || [], [data?.overall?.cycles]);
+  const maintenance = useMemo(() => data?.maintenance || [], [data?.maintenance]);
 
   // Helper: get cycle IDs array from full row objects
   const cycleIds = (rows) => rows.map(r => r.cycle_id || r).join(', ');
@@ -620,26 +619,34 @@ export default function AdminDashboard() {
     // Initial fetch
     fetchDashboardData();
 
+    // Helper: detect if the user is currently focused and typing anywhere inside the report
+    const isTypingInReport = () => {
+      const el = document.getElementById('report-editable-body');
+      return !!(el && document.activeElement && el.contains(document.activeElement));
+    };
+
     // 1. Supabase Realtime channel for instant live updates across home_cycles, tasks, swaps, maintenance
     const channel = supabase
       .channel('admin-dashboard-live-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'home_cycles' }, () => {
-        fetchDashboardData();
+        if (!isTypingInReport()) fetchDashboardData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
-        fetchDashboardData();
+        if (!isTypingInReport()) fetchDashboardData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'battery_swaps' }, () => {
-        fetchDashboardData();
+        if (!isTypingInReport()) fetchDashboardData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance' }, () => {
-        fetchDashboardData();
+        if (!isTypingInReport()) fetchDashboardData();
       })
       .subscribe();
 
-    // 2. Active 5-second polling interval so submissions reflect quickly and reliably in the report
+    // 2. Active 5-second polling interval (skips if user is actively writing to prevent any cursor bounce)
     const pollInterval = setInterval(() => {
-      fetchDashboardData();
+      if (!isTypingInReport()) {
+        fetchDashboardData();
+      }
     }, 5000);
 
     return () => {
@@ -746,6 +753,19 @@ export default function AdminDashboard() {
 
   const REPORT_HTML_STORAGE_KEY = `liveEditHtml_v3_${reportDateKey}`;
 
+  const triggerSaveIndicator = () => {
+    const badge = document.getElementById('live-save-status-badge');
+    if (badge) {
+      badge.classList.remove('opacity-0');
+      badge.classList.add('opacity-100');
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+        badge.classList.remove('opacity-100');
+        badge.classList.add('opacity-0');
+      }, 1500);
+    }
+  };
+
   const saveCurrentReportHtml = (showIndicator = false) => {
     const el = document.getElementById('report-editable-body');
     if (el) {
@@ -753,8 +773,7 @@ export default function AdminDashboard() {
         localStorage.setItem(REPORT_HTML_STORAGE_KEY, el.innerHTML);
       } catch (e) {}
       if (showIndicator) {
-        setLiveEditSaveStatus(true);
-        setTimeout(() => setLiveEditSaveStatus(false), 1200);
+        triggerSaveIndicator();
       }
     }
   };
@@ -767,11 +786,10 @@ export default function AdminDashboard() {
         localStorage.setItem(REPORT_HTML_STORAGE_KEY, el.innerHTML);
       } catch (e) {}
     }
-    // Debounce the visual "Saved" badge so React does not re-render and kill cursor selection on every keypress!
+    // Show visual "Saved" badge smoothly without any React component re-render!
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
-      setLiveEditSaveStatus(true);
-      setTimeout(() => setLiveEditSaveStatus(false), 1200);
+      triggerSaveIndicator();
     }, 1500);
   };
 
@@ -1180,7 +1198,10 @@ export default function AdminDashboard() {
   };
 
   const handleReportBlur = () => {
-    saveCurrentReportHtml(true);
+    saveCurrentReportHtml(false);
+    if (data?.home_cycles) {
+      updateHomeCyclesSectionInDom(data.home_cycles);
+    }
   };
 
   const getActiveOrLastReportTable = () => {
@@ -1409,7 +1430,11 @@ export default function AdminDashboard() {
     }
   };
 
+  const reportLoadedDateRef = useRef(null);
+  const lastHomeCyclesJsonRef = useRef('');
+
   useEffect(() => {
+    if (reportLoadedDateRef.current === reportDateKey) return;
     const savedHtml = localStorage.getItem(REPORT_HTML_STORAGE_KEY);
     if (savedHtml) {
       // Check if savedHtml is missing any staff who are currently present in live routine data
@@ -1420,6 +1445,7 @@ export default function AdminDashboard() {
         try {
           localStorage.removeItem(REPORT_HTML_STORAGE_KEY);
         } catch (e) {}
+        reportLoadedDateRef.current = reportDateKey;
         return;
       }
       const el = document.getElementById('report-editable-body');
@@ -1432,13 +1458,22 @@ export default function AdminDashboard() {
         }
       }
     }
-  }, [isLiveEditMode, reportDateKey, activeTab, routineStaff]);
+    reportLoadedDateRef.current = reportDateKey;
+  }, [reportDateKey, routineStaff]);
 
   // Keep home cycles live and updated instantly whenever fresh submissions arrive
   useEffect(() => {
-    if (data?.home_cycles) {
-      updateHomeCyclesSectionInDom(data.home_cycles);
+    if (!data?.home_cycles) return;
+    const currentJson = JSON.stringify(data.home_cycles);
+    if (lastHomeCyclesJsonRef.current === currentJson) return;
+    lastHomeCyclesJsonRef.current = currentJson;
+
+    const el = document.getElementById('report-editable-body');
+    // If user is currently focused/typing anywhere in the report, defer until blur to never bounce cursor
+    if (el && document.activeElement && el.contains(document.activeElement)) {
+      return;
     }
+    updateHomeCyclesSectionInDom(data.home_cycles);
   }, [data?.home_cycles]);
 
   // Global keyboard shortcut for Undo (Cmd+Z / Ctrl+Z)
@@ -2849,11 +2884,12 @@ export default function AdminDashboard() {
                         <span className="text-[11px] bg-[#F5F5F7] text-[#6E6E73] px-2 py-0.5 rounded-md font-medium border border-black/[0.04]">
                           Play
                         </span>
-                        {liveEditSaveStatus && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
-                            <Check size={12} /> Saved
-                          </span>
-                        )}
+                        <span 
+                          id="live-save-status-badge"
+                          className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-medium transition-opacity duration-300 opacity-0 pointer-events-none"
+                        >
+                          <Check size={12} /> Saved
+                        </span>
                       </div>
 
                       {/* Right: Minimalist Monochrome Apple Capsule Controls */}
