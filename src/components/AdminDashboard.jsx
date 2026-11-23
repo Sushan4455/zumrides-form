@@ -143,7 +143,11 @@ export default function AdminDashboard() {
   const [repairedSearch, setRepairedSearch] = useState('');
 
   // Formatting Data safely & Derived State (computed at top level so all hooks & effects can safely access them)
-  const todayStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const todayStr = useMemo(() => {
+    return selectedDate 
+      ? selectedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) 
+      : new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  }, [selectedDate]);
   
   const routineStaff = useMemo(() => (data?.routine ? Object.keys(data.routine) : []), [data?.routine]);
   const pretaskStaff = useMemo(() => (data?.pretask ? Object.keys(data.pretask) : []), [data?.pretask]);
@@ -316,6 +320,22 @@ export default function AdminDashboard() {
   const reportDateKey = getLocalDateKey(selectedDate);
   const dailyAssignments = getDailyAssignments(selectedDate, postponements);
   const overridesKey = `zum_report_overrides_${reportDateKey}`;
+
+  const initialMainTitle = useMemo(() => {
+    return localStorage.getItem(`zum_report_main_title_${reportDateKey}`) 
+      || localStorage.getItem('zum_report_main_title') 
+      || 'Daily Operations Report';
+  }, [reportDateKey]);
+
+  const initialSubtitle = useMemo(() => {
+    return localStorage.getItem(`zum_report_subtitle_${reportDateKey}`) 
+      || `Date: ${todayStr}  |  Prepared by: Automated System`;
+  }, [reportDateKey, todayStr]);
+
+  const initialHeaderTag = useMemo(() => {
+    return localStorage.getItem(`zum_report_tag_${reportDateKey}`) 
+      || 'Zum Operations';
+  }, [reportDateKey]);
 
   const persistAssignments = async (updatedMap, entriesToSync = []) => {
     setCurrentAssignments(updatedMap);
@@ -619,10 +639,12 @@ export default function AdminDashboard() {
     // Initial fetch
     fetchDashboardData();
 
-    // Helper: detect if the user is currently focused and typing anywhere inside the report
+    // Helper: detect if the user is currently focused and typing anywhere inside the report (body or header)
     const isTypingInReport = () => {
       const el = document.getElementById('report-editable-body');
-      return !!(el && document.activeElement && el.contains(document.activeElement));
+      const header = document.querySelector('.report-header');
+      const active = document.activeElement;
+      return !!(active && ((el && el.contains(active)) || (header && header.contains(active))));
     };
 
     // 1. Supabase Realtime channel for instant live updates across home_cycles, tasks, swaps, maintenance
@@ -1426,9 +1448,28 @@ export default function AdminDashboard() {
     if (window.confirm("Reset manual edits and restore original automated operational report?")) {
       localStorage.removeItem(REPORT_HTML_STORAGE_KEY);
       localStorage.removeItem(`liveEditHtml_${reportDateKey}`);
+      localStorage.removeItem(`zum_report_main_title_${reportDateKey}`);
+      localStorage.removeItem(`zum_report_subtitle_${reportDateKey}`);
+      localStorage.removeItem(`zum_report_tag_${reportDateKey}`);
       window.location.reload();
     }
   };
+
+  // Synchronize header text when switching dates
+  useEffect(() => {
+    const titleEl = document.getElementById('report-main-title');
+    if (titleEl && !titleEl.contains(document.activeElement)) {
+      titleEl.innerText = initialMainTitle;
+    }
+    const subEl = document.getElementById('report-subtitle');
+    if (subEl && !subEl.contains(document.activeElement)) {
+      subEl.innerText = initialSubtitle;
+    }
+    const tagEl = document.getElementById('report-header-tag');
+    if (tagEl && !tagEl.contains(document.activeElement)) {
+      tagEl.innerText = initialHeaderTag;
+    }
+  }, [reportDateKey, initialMainTitle, initialSubtitle, initialHeaderTag]);
 
   const reportLoadedDateRef = useRef(null);
   const lastHomeCyclesJsonRef = useRef('');
@@ -3397,16 +3438,105 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* Header (Always fixed, pristine & non-editable header so cursor never jumps into it) */}
+              {/* Report Header: Editable Main Title, Subtitle, and Tag */}
               <div 
-                className="report-header flex flex-col sm:flex-row justify-between items-start sm:items-end border-b-2 border-gray-900 pb-4 mb-6 gap-3 select-none"
-                contentEditable={false}
+                className="report-header flex flex-col sm:flex-row justify-between items-start sm:items-end border-b-2 border-gray-900 pb-4 mb-6 gap-3"
               >
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: "'Play', sans-serif" }}>Daily Operations Report</h2>
-                  <p className="text-sm text-gray-900" style={{ fontFamily: "'Play', sans-serif" }}>Date: {todayStr} &nbsp;|&nbsp; Prepared by: Automated System</p>
+                <div className="flex-1 min-w-0">
+                  <h2
+                    id="report-main-title"
+                    contentEditable={isLiveEditMode}
+                    suppressContentEditableWarning={true}
+                    onClick={() => { if (!isLiveEditMode) setIsLiveEditMode(true); }}
+                    className={`text-2xl font-bold text-gray-900 mb-1 outline-none transition rounded ${
+                      isLiveEditMode 
+                        ? 'hover:bg-black/[0.04] focus:bg-white focus:ring-1 focus:ring-black/25 px-1.5 -mx-1.5 cursor-text' 
+                        : 'cursor-pointer hover:opacity-85'
+                    }`}
+                    style={{ fontFamily: "'Play', sans-serif" }}
+                    title={isLiveEditMode ? "Click to edit title" : "Click to edit document and title"}
+                    onInput={(e) => {
+                      const text = e.currentTarget.innerText;
+                      try {
+                        localStorage.setItem(`zum_report_main_title_${reportDateKey}`, text);
+                        localStorage.setItem('zum_report_main_title', text);
+                      } catch (err) {}
+                      triggerSaveIndicator();
+                    }}
+                    onBlur={(e) => {
+                      const text = e.currentTarget.innerText.trim();
+                      if (!text) {
+                        e.currentTarget.innerText = 'Daily Operations Report';
+                      }
+                      try {
+                        localStorage.setItem(`zum_report_main_title_${reportDateKey}`, e.currentTarget.innerText);
+                        localStorage.setItem('zum_report_main_title', e.currentTarget.innerText);
+                      } catch (err) {}
+                    }}
+                  >
+                    {initialMainTitle}
+                  </h2>
+                  <p 
+                    id="report-subtitle"
+                    contentEditable={isLiveEditMode}
+                    suppressContentEditableWarning={true}
+                    onClick={() => { if (!isLiveEditMode) setIsLiveEditMode(true); }}
+                    className={`text-sm text-gray-900 outline-none transition rounded ${
+                      isLiveEditMode 
+                        ? 'hover:bg-black/[0.04] focus:bg-white focus:ring-1 focus:ring-black/25 px-1.5 -mx-1.5 cursor-text' 
+                        : 'cursor-pointer hover:opacity-85'
+                    }`}
+                    style={{ fontFamily: "'Play', sans-serif" }}
+                    title={isLiveEditMode ? "Click to edit subtitle" : "Click to edit document and subtitle"}
+                    onInput={(e) => {
+                      try {
+                        localStorage.setItem(`zum_report_subtitle_${reportDateKey}`, e.currentTarget.innerText);
+                      } catch (err) {}
+                      triggerSaveIndicator();
+                    }}
+                    onBlur={(e) => {
+                      const text = e.currentTarget.innerText.trim();
+                      if (!text) {
+                        e.currentTarget.innerText = `Date: ${todayStr}  |  Prepared by: Automated System`;
+                      }
+                      try {
+                        localStorage.setItem(`zum_report_subtitle_${reportDateKey}`, e.currentTarget.innerText);
+                      } catch (err) {}
+                    }}
+                  >
+                    {initialSubtitle}
+                  </p>
                 </div>
-                <div className="text-right text-xs text-gray-900 shrink-0 font-medium" style={{ fontFamily: "'Play', sans-serif" }}>Zum Operations</div>
+                <div 
+                  id="report-header-tag"
+                  contentEditable={isLiveEditMode}
+                  suppressContentEditableWarning={true}
+                  onClick={() => { if (!isLiveEditMode) setIsLiveEditMode(true); }}
+                  className={`text-right text-xs text-gray-900 shrink-0 font-medium outline-none transition rounded ${
+                    isLiveEditMode 
+                      ? 'hover:bg-black/[0.04] focus:bg-white focus:ring-1 focus:ring-black/25 px-1.5 -mx-1.5 cursor-text' 
+                      : 'cursor-pointer hover:opacity-85'
+                  }`}
+                  style={{ fontFamily: "'Play', sans-serif" }}
+                  title={isLiveEditMode ? "Click to edit tag" : "Click to edit tag"}
+                  onInput={(e) => {
+                    try {
+                      localStorage.setItem(`zum_report_tag_${reportDateKey}`, e.currentTarget.innerText);
+                    } catch (err) {}
+                    triggerSaveIndicator();
+                  }}
+                  onBlur={(e) => {
+                    const text = e.currentTarget.innerText.trim();
+                    if (!text) {
+                      e.currentTarget.innerText = 'Zum Operations';
+                    }
+                    try {
+                      localStorage.setItem(`zum_report_tag_${reportDateKey}`, e.currentTarget.innerText);
+                    } catch (err) {}
+                  }}
+                >
+                  {initialHeaderTag}
+                </div>
               </div>
 
               {/* Editable Report Body */}
