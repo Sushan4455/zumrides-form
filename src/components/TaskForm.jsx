@@ -836,55 +836,45 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       <div className="w-full h-px bg-gray-900 mb-6"></div>
 
       {taskType === 'routine' ? (
-        <div className="mb-6 flex flex-col gap-4">
-          {/* Header controls & Selection Count */}
-          <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="mb-6">
+          {/* Header & Selection Count */}
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <div className="text-sm font-bold text-indigo-950 flex items-center gap-2">
-                <span>Assigned Cycles for {staffName}</span>
-                {isSyncing && (
-                  <span className="text-xs font-normal text-indigo-600 animate-pulse">Syncing...</span>
-                )}
-              </div>
-              <p className="text-xs text-indigo-700 mt-0.5">
-                {routineItems.filter(i => i.checked).length} of {routineItems.length} cycles selected
-              </p>
+              <label className="block text-sm font-semibold text-gray-700">Assigned Cycles</label>
+              <span className="text-xs text-gray-500">
+                {routineItems.filter(i => i.checked).length} of {routineItems.length} selected
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => toggleAllRoutine(true)}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition active:scale-95 shadow-xs"
+                className="text-xs text-gray-600 hover:text-black font-medium px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 transition"
               >
                 Select All
               </button>
               <button
                 type="button"
                 onClick={() => toggleAllRoutine(false)}
-                className="px-3 py-1.5 bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-900 rounded-xl text-xs font-bold transition active:scale-95"
+                className="text-xs text-gray-500 hover:text-red-600 font-medium px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 transition"
               >
-                Deselect All
+                Clear
               </button>
             </div>
           </div>
 
           {/* Checklist items */}
           {routineItems.length === 0 ? (
-            <div className="p-8 text-center rounded-2xl bg-gray-50 border border-dashed border-gray-300">
-              <p className="text-sm text-gray-600 font-medium">No assigned cycles found yet for {staffName} on this shift.</p>
-              <p className="text-xs text-gray-400 mt-1">You can add your cycle IDs below:</p>
+            <div className="p-8 text-center rounded-xl bg-gray-100 text-gray-500 text-sm mb-4">
+              No assigned cycles found yet for {staffName} on this shift.
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-2.5">
+            <div className="flex flex-col gap-2.5">
               {routineItems.map((item) => (
                 <div
                   key={item.cycleId}
-                  className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${
-                    item.checked
-                      ? item.condition === 'issue'
-                        ? 'bg-amber-50/60 border-amber-300 shadow-xs'
-                        : 'bg-white border-gray-200 hover:border-gray-300 shadow-xs'
-                      : 'bg-gray-50/70 border-gray-200 opacity-60'
+                  className={`p-3.5 sm:p-4 rounded-xl transition-all ${
+                    item.checked ? 'bg-gray-100' : 'bg-gray-50 opacity-40'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -893,15 +883,15 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                         type="checkbox"
                         checked={item.checked}
                         onChange={() => toggleRoutineCycle(item.cycleId)}
-                        className="w-5 h-5 rounded-lg text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer accent-indigo-600 shrink-0"
+                        className="w-4 h-4 rounded text-black focus:ring-black cursor-pointer accent-black shrink-0"
                       />
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-base font-bold tracking-tight ${item.checked ? 'text-gray-900' : 'text-gray-500 line-through'}`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base font-semibold ${item.checked ? 'text-gray-900' : 'text-gray-400 line-through'}`}>
                           Cycle #{item.cycleId}
                         </span>
                         {item.isCustom && (
-                          <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-semibold rounded-md border border-purple-200">
-                            Extra
+                          <span className="text-[11px] font-medium text-gray-500 bg-gray-200/80 px-2 py-0.5 rounded-md">
+                            Added
                           </span>
                         )}
                       </div>
@@ -911,32 +901,22 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                       <button
                         type="button"
                         onClick={() => toggleRoutineIssue(item.cycleId)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 ${
                           item.condition === 'issue'
-                            ? 'bg-red-500 text-white shadow-xs'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                            ? 'bg-red-100 text-red-700 font-semibold'
+                            : 'bg-white text-gray-700 hover:text-black border border-gray-200/60 shadow-2xs'
                         }`}
-                        title="Click to flag or unflag an issue"
+                        title="Click to toggle issue status"
                       >
-                        {item.condition === 'issue' ? (
-                          <>
-                            <AlertCircle size={13} />
-                            <span>Issue</span>
-                          </>
-                        ) : (
-                          <>
-                            <Check size={13} />
-                            <span>All Good</span>
-                          </>
-                        )}
+                        {item.condition === 'issue' ? 'Has Issue' : 'All Good'}
                       </button>
 
                       {item.isCustom && (
                         <button
                           type="button"
                           onClick={() => setRoutineItems(prev => prev.filter(p => p.cycleId !== item.cycleId))}
-                          className="p-1.5 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50"
-                          title="Remove extra cycle"
+                          className="p-1 text-gray-400 hover:text-red-500 transition"
+                          title="Remove cycle"
                         >
                           <Trash2 size={15} />
                         </button>
@@ -945,17 +925,15 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                   </div>
 
                   {item.checked && item.condition === 'issue' && (
-                    <div className="mt-3 pt-3 border-t border-amber-200/80">
-                      <label className="block text-xs font-semibold text-amber-900 mb-1">
-                        Describe Issue for Cycle #{item.cycleId} <span className="text-red-500">*</span>
-                      </label>
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <label className="block text-xs text-gray-500 mb-1">Issue Description</label>
                       <input
                         type="text"
                         required
                         value={item.issue}
                         onChange={(e) => updateRoutineIssueText(item.cycleId, e.target.value)}
-                        placeholder="e.g. Front brake loose, chain disconnected, flat tire..."
-                        className="w-full p-2.5 rounded-xl bg-white border border-amber-300 text-gray-900 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                        placeholder="e.g. Flat tire, loose brake, sensor error..."
+                        className="w-full p-3 rounded-lg bg-white border border-gray-200 text-gray-900 text-sm outline-none focus:ring-2 focus:ring-black"
                       />
                     </div>
                   )}
@@ -965,27 +943,30 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           )}
 
           {/* Add extra cycle input */}
-          <div className="p-3 rounded-2xl bg-gray-50 border border-gray-200 flex items-center gap-2">
-            <input
-              type="text"
-              value={extraCycleInput}
-              onChange={(e) => setExtraCycleInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddExtraCycle();
-                }
-              }}
-              placeholder="Add extra cycle ID (e.g. 104, 215)..."
-              className="flex-1 bg-white border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <button
-              type="button"
-              onClick={handleAddExtraCycle}
-              className="px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-xl transition active:scale-95 shrink-0"
-            >
-              + Add Cycle
-            </button>
+          <div className="mt-4 mb-2">
+            <label className="block text-sm text-gray-500 mb-1">Add Another Cycle (Optional)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={extraCycleInput}
+                onChange={(e) => setExtraCycleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddExtraCycle();
+                  }
+                }}
+                placeholder="e.g. 104, 215"
+                className="flex-1 p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleAddExtraCycle}
+                className="px-5 py-4 bg-gray-100 hover:bg-gray-200 text-gray-900 font-medium text-sm rounded-xl transition active:scale-95 shrink-0"
+              >
+                + Add
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -1220,14 +1201,14 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           setSaveMsg('');
           setSaveError('');
         }} className="flex-1 sm:flex-initial px-5 py-3 sm:py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition text-center min-h-[44px]">
-          {taskType === 'routine' ? 'Deselect All' : 'Clear'}
+          Clear
         </button>
         {taskType !== 'battery_swap' && (
           <button type="submit" disabled={isSubmitting || (taskType === 'routine' && routineItems.filter(i => i.checked).length === 0)} className="w-full sm:w-auto px-8 py-3 sm:py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold hover:bg-black transition shadow-sm disabled:opacity-50 text-center min-h-[44px]">
             {isSubmitting
               ? 'Saving...'
               : taskType === 'routine'
-              ? `Submit Routine Checkup (${routineItems.filter(i => i.checked).length})`
+              ? `Save (${routineItems.filter(i => i.checked).length})`
               : (taskType === 'home_battery_swap' ? 'Save Swap' : 'Save')}
           </button>
         )}
