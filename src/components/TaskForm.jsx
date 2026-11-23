@@ -58,6 +58,11 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   const [cycles, setCycles] = useState([{ id: Date.now(), cycleId: '', inBatteryId: '', outBatteryId: '', inPercentage: '', inTime: null, inTimestamp: null, outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSwapReady, setIsSwapReady] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  // For Routine Checkup: Checkbox-based workflow
+  const [routineItems, setRoutineItems] = useState([]);
+  const [extraCycleInput, setExtraCycleInput] = useState('');
   
   // For Pre-Task & Routine Assignments + Blank Paper
   const [eligibleCycles, setEligibleCycles] = useState([]);
@@ -122,22 +127,23 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               : [];
             setAssignedCycles(arr);
 
-            // Auto-populate the Routine form fields if the user hasn't typed anything yet
+            // Auto-populate the Routine checklist items from assigned cycles
             if (taskType === 'routine' && arr.length > 0) {
-              setCycles(prev => {
-                const isBlankDraft = prev.length === 1 && (!prev[0].cycleId || !prev[0].cycleId.trim());
-                if (!isBlankDraft) return prev;
-                return arr.map((cId, i) => ({
-                  id: Date.now() + i + Math.random(),
-                  cycleId: cId,
-                  condition: 'good',
-                  issue: '',
-                  partsChecked: [],
-                  category: '',
-                  fixDescription: '',
-                  odometer: '',
-                  status: 'Repaired'
-                }));
+              setRoutineItems(prev => {
+                const existingMap = new Map(prev.map(item => [item.cycleId, item]));
+                const merged = arr.map(cId => {
+                  if (existingMap.has(cId)) return existingMap.get(cId);
+                  return {
+                    cycleId: cId,
+                    checked: true,
+                    condition: 'good',
+                    issue: ''
+                  };
+                });
+                prev.filter(p => p.isCustom && !arr.includes(p.cycleId)).forEach(extra => {
+                  merged.push(extra);
+                });
+                return merged;
               });
             }
           };
@@ -201,7 +207,19 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                const filtered = allData.filter(c => c.staff_name === staffName && (c.task_type === 'Pre-Task Check' || c.task_type === 'pretask'));
                filtered.forEach(c => unique[c.cycle_id] = c);
             }
-            setEligibleCycles(Object.values(unique));
+            const elig = Object.values(unique);
+            setEligibleCycles(elig);
+            if (taskType === 'routine' && elig.length > 0) {
+              setRoutineItems(prev => {
+                if (prev.length > 0) return prev;
+                return elig.map(c => ({
+                  cycleId: String(c.cycle_id || c.cycleId).trim(),
+                  checked: true,
+                  condition: 'good',
+                  issue: ''
+                }));
+              });
+            }
           }
         } catch (error) {
           console.error("Error fetching assignments:", error);
@@ -271,6 +289,52 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
   const removeCycle = (id) => {
     setCycles(cycles.filter(c => c.id !== id));
+  };
+
+  const toggleRoutineCycle = (cycleId) => {
+    setRoutineItems(prev => prev.map(item => 
+      item.cycleId === cycleId ? { ...item, checked: !item.checked } : item
+    ));
+  };
+
+  const toggleAllRoutine = (select = true) => {
+    setRoutineItems(prev => prev.map(item => ({ ...item, checked: select })));
+  };
+
+  const toggleRoutineIssue = (cycleId) => {
+    setRoutineItems(prev => prev.map(item => {
+      if (item.cycleId !== cycleId) return item;
+      const nextCond = item.condition === 'issue' ? 'good' : 'issue';
+      return {
+        ...item,
+        condition: nextCond,
+        issue: nextCond === 'good' ? '' : item.issue
+      };
+    }));
+  };
+
+  const updateRoutineIssueText = (cycleId, text) => {
+    setRoutineItems(prev => prev.map(item => 
+      item.cycleId === cycleId ? { ...item, issue: text } : item
+    ));
+  };
+
+  const handleAddExtraCycle = () => {
+    const val = extraCycleInput.trim();
+    if (!val) return;
+    const ids = val.split(/[,;\s]+/).filter(Boolean);
+    setRoutineItems(prev => {
+      const existing = new Set(prev.map(p => p.cycleId));
+      const toAdd = ids.filter(id => !existing.has(id)).map(id => ({
+        cycleId: id,
+        checked: true,
+        condition: 'good',
+        issue: '',
+        isCustom: true
+      }));
+      return [...prev, ...toAdd];
+    });
+    setExtraCycleInput('');
   };
 
   // Smart updateCycle — auto-fills defect info for maintenance when cycle ID matches a known issue
@@ -377,6 +441,93 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    // Fast-path for Routine Checkup: Checkbox-based submission without form filling
+    if (taskType === 'routine') {
+      const selected = routineItems.filter(item => item.checked);
+      if (selected.length === 0) {
+        setSaveError('Please select at least one assigned cycle to submit!');
+        return;
+      }
+
+      const missingDesc = selected.find(item => item.condition === 'issue' && !item.issue?.trim());
+      if (missingDesc) {
+        setSaveError(`Please enter the issue description for Cycle #${missingDesc.cycleId}`);
+        return;
+      }
+
+      setIsSubmitting(true);
+      setSaveMsg('');
+      setSaveError('');
+
+      const tasksToInsert = selected.map(item => ({
+        staff_name: staffName,
+        task_type: 'Routine Checkup',
+        station_name: 'N/A',
+        cycle_id: item.cycleId.trim(),
+        condition: item.condition,
+        issue: item.condition === 'issue' ? item.issue.trim() : '',
+        parts_checked: '',
+        odometer: ''
+      }));
+
+      const timestamp = new Date().toLocaleString();
+      const sheetsRecords = selected.map(item => ({
+        timestamp,
+        staffName,
+        taskType: 'Routine Checkup',
+        stationName: 'N/A',
+        cycleId: item.cycleId.trim(),
+        condition: item.condition,
+        issue: item.condition === 'issue' ? item.issue.trim() : '',
+        partsChecked: '',
+        odometer: '',
+        fixDescription: '',
+        defectCategory: '',
+        status: ''
+      }));
+
+      try {
+        const saveToSupabase = async () => {
+          try {
+            const { error } = await supabase.from('tasks').insert(tasksToInsert);
+            if (error) console.error('Supabase tasks err:', error);
+          } catch (sbErr) {
+            console.error('Supabase exception:', sbErr);
+          }
+        };
+        saveToSupabase();
+
+        setSaveMsg(`✅ ${selected.length} Routine Checkup${selected.length > 1 ? 's' : ''} submitted successfully!`);
+        localStorage.removeItem(`zum_routine_items_${staffName}`);
+        setTimeout(() => onBack(), 1200);
+
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
+        const formData = new FormData();
+        formData.append('data', JSON.stringify(sheetsRecords));
+        fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: formData }).catch(() => {});
+
+        const brokenCycles = sheetsRecords.filter(r => r.condition === 'issue').map(r => ({
+          ...r,
+          sheetTarget: 'issues',
+          defectCategory: 'Routine Issue',
+          fixDescription: r.issue
+        }));
+        if (brokenCycles.length > 0) {
+          const MAINTENANCE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydh5t8duV6t8MItonvFJ2nxYtSjyE-PApwKdf-PTaB52NNgtymi-7S4kNf29ao22oF/exec';
+          const issueFormData = new FormData();
+          issueFormData.append('data', JSON.stringify(brokenCycles));
+          fetch(MAINTENANCE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: issueFormData }).catch(() => {});
+        }
+      } catch (err) {
+        setSaveError('Error submitting: ' + err.message);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     setIsSubmitting(true);
     setSaveMsg('');
     setSaveError('');
@@ -684,251 +835,371 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
       <div className="w-full h-px bg-gray-900 mb-6"></div>
 
-      {taskType === 'routine' && (
-        <div className="mb-6 flex flex-col gap-3">
-          {/* Assigned Cycles Quick Banner for Current Staff */}
-          {assignedCycles.length > 0 && (
-            <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col gap-2.5">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-xs font-bold uppercase tracking-wider text-indigo-900">
-                  Assigned Cycles for {staffName} ({assignedCycles.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleLoadCyclesIntoForm(assignedCycles)}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition active:scale-95 shadow-2xs"
+      {taskType === 'routine' ? (
+        <div className="mb-6 flex flex-col gap-4">
+          {/* Header controls & Selection Count */}
+          <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-bold text-indigo-950 flex items-center gap-2">
+                <span>Assigned Cycles for {staffName}</span>
+                {isSyncing && (
+                  <span className="text-xs font-normal text-indigo-600 animate-pulse">Syncing...</span>
+                )}
+              </div>
+              <p className="text-xs text-indigo-700 mt-0.5">
+                {routineItems.filter(i => i.checked).length} of {routineItems.length} cycles selected
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => toggleAllRoutine(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition active:scale-95 shadow-xs"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleAllRoutine(false)}
+                className="px-3 py-1.5 bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-900 rounded-xl text-xs font-bold transition active:scale-95"
+              >
+                Deselect All
+              </button>
+            </div>
+          </div>
+
+          {/* Checklist items */}
+          {routineItems.length === 0 ? (
+            <div className="p-8 text-center rounded-2xl bg-gray-50 border border-dashed border-gray-300">
+              <p className="text-sm text-gray-600 font-medium">No assigned cycles found yet for {staffName} on this shift.</p>
+              <p className="text-xs text-gray-400 mt-1">You can add your cycle IDs below:</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2.5">
+              {routineItems.map((item) => (
+                <div
+                  key={item.cycleId}
+                  className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${
+                    item.checked
+                      ? item.condition === 'issue'
+                        ? 'bg-amber-50/60 border-amber-300 shadow-xs'
+                        : 'bg-white border-gray-200 hover:border-gray-300 shadow-xs'
+                      : 'bg-gray-50/70 border-gray-200 opacity-60'
+                  }`}
                 >
-                  Load All ({assignedCycles.length}) Cycles at Once
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {assignedCycles.map((cId, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleLoadCyclesIntoForm([cId])}
-                    className="px-2.5 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 transition active:scale-95"
-                    title="Tap to add this cycle to form"
-                  >
-                    + #{cId}
-                  </button>
-                ))}
-              </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0 select-none">
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        onChange={() => toggleRoutineCycle(item.cycleId)}
+                        className="w-5 h-5 rounded-lg text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer accent-indigo-600 shrink-0"
+                      />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-base font-bold tracking-tight ${item.checked ? 'text-gray-900' : 'text-gray-500 line-through'}`}>
+                          Cycle #{item.cycleId}
+                        </span>
+                        {item.isCustom && (
+                          <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-semibold rounded-md border border-purple-200">
+                            Extra
+                          </span>
+                        )}
+                      </div>
+                    </label>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleRoutineIssue(item.cycleId)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 flex items-center gap-1.5 ${
+                          item.condition === 'issue'
+                            ? 'bg-red-500 text-white shadow-xs'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                        title="Click to flag or unflag an issue"
+                      >
+                        {item.condition === 'issue' ? (
+                          <>
+                            <AlertCircle size={13} />
+                            <span>Issue</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check size={13} />
+                            <span>All Good</span>
+                          </>
+                        )}
+                      </button>
+
+                      {item.isCustom && (
+                        <button
+                          type="button"
+                          onClick={() => setRoutineItems(prev => prev.filter(p => p.cycleId !== item.cycleId))}
+                          className="p-1.5 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50"
+                          title="Remove extra cycle"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {item.checked && item.condition === 'issue' && (
+                    <div className="mt-3 pt-3 border-t border-amber-200/80">
+                      <label className="block text-xs font-semibold text-amber-900 mb-1">
+                        Describe Issue for Cycle #{item.cycleId} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={item.issue}
+                        onChange={(e) => updateRoutineIssueText(item.cycleId, e.target.value)}
+                        placeholder="e.g. Front brake loose, chain disconnected, flat tire..."
+                        className="w-full p-2.5 rounded-xl bg-white border border-amber-300 text-gray-900 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
+
+          {/* Add extra cycle input */}
+          <div className="p-3 rounded-2xl bg-gray-50 border border-gray-200 flex items-center gap-2">
+            <input
+              type="text"
+              value={extraCycleInput}
+              onChange={(e) => setExtraCycleInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddExtraCycle();
+                }
+              }}
+              placeholder="Add extra cycle ID (e.g. 104, 215)..."
+              className="flex-1 bg-white border border-gray-200 rounded-xl px-3.5 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={handleAddExtraCycle}
+              className="px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-xl transition active:scale-95 shrink-0"
+            >
+              + Add Cycle
+            </button>
+          </div>
         </div>
+      ) : (
+        cycles.map((cycle, index) => (
+          <div key={cycle.id} className="mb-6 bg-transparent relative">
+            {taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'battery_test' && (
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-semibold text-gray-900">
+                  {cycles.length > 1 ? `Cycle #${index + 1}` : ''}
+                </span>
+                {index > 0 && (
+                  <button type="button" onClick={() => removeCycle(cycle.id)} className="text-red-500 text-sm">
+                    Remove
+                  </button>
+                )}
+              </div>
+            )}
+
+            {taskType === 'maintenance' ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm  text-gray-500 mb-1">Broken Cycle ID</label>
+                  <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 93" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
+                  {knownIssueAlert && (
+                    <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-xl text-sm text-amber-800 font-medium">
+                      {knownIssueAlert}
+                    </div>
+                  )}
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm  text-gray-500 mb-1">Defect Category / Issue</label>
+                  <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. E-10 Error" value={cycle.category} onChange={e => updateCycle(cycle.id, 'category', e.target.value)} />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm  text-gray-500 mb-1">Repair Action Taken</label>
+                  <textarea required rows="3" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="Describe fix..." value={cycle.fixDescription} onChange={e => updateCycle(cycle.id, 'fixDescription', e.target.value)} />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm  text-gray-500 mb-1">Odometer</label>
+                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 1500" value={cycle.odometer} onChange={e => updateCycle(cycle.id, 'odometer', e.target.value)} />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm  text-gray-500 mb-1">Status</label>
+                  <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.status} onChange={e => updateCycle(cycle.id, 'status', e.target.value)}>
+                    <option value="Repaired">Repaired</option>
+                    <option value="Pending Parts">Pending Parts</option>
+                    <option value="In Progress">In Progress</option>
+                  </select>
+                </div>
+              </>
+            ) : taskType === 'home_cycle' ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Home Cycle ID</label>
+                  <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 249" value={cycle.homeCycleId || ''} onChange={e => updateCycle(cycle.id, 'homeCycleId', e.target.value)} />
+                </div>
+              </>
+            ) : taskType === 'battery_test' ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Battery ID</label>
+                  <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">Actual Battery %</label>
+                    <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 85" value={cycle.actualBatteryPercentage} onChange={e => updateCycle(cycle.id, 'actualBatteryPercentage', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">Actual Voltage</label>
+                    <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 52.5" value={cycle.actualVoltage} onChange={e => updateCycle(cycle.id, 'actualVoltage', e.target.value)} />
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Status</label>
+                  <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.status} onChange={e => updateCycle(cycle.id, 'status', e.target.value)}>
+                    <option value="rest office">rest office</option>
+                    <option value="Rest Outside">Rest Outside</option>
+                    <option value="direct charge">direct charge</option>
+                    <option value="rest and charge">rest and charge</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">Start Time</label>
+                    <input type="time" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" value={cycle.startTime} onChange={e => updateCycle(cycle.id, 'startTime', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">End Time</label>
+                    <input type="time" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" value={cycle.endTime} onChange={e => updateCycle(cycle.id, 'endTime', e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">Before Battery %</label>
+                    <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 20" value={cycle.beforeBatteryPercentage} onChange={e => updateCycle(cycle.id, 'beforeBatteryPercentage', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">Before Voltage</label>
+                    <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 48.0" value={cycle.beforeVoltage} onChange={e => updateCycle(cycle.id, 'beforeVoltage', e.target.value)} />
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Odometer (km)</label>
+                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 1500" value={cycle.odometer} onChange={e => updateCycle(cycle.id, 'odometer', e.target.value)} />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Notes</label>
+                  <textarea rows="2" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="Additional notes..." value={cycle.notes} onChange={e => updateCycle(cycle.id, 'notes', e.target.value)} />
+                </div>
+              </>
+            ) : (taskType === 'battery_swap' || taskType === 'home_battery_swap') ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
+                  <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. CYC-100" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Battery ID</label>
+                    <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.inBatteryId || ''} onChange={e => updateCycle(cycle.id, 'inBatteryId', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Percentage</label>
+                    <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 20" value={cycle.inPercentage || ''} onChange={e => updateCycle(cycle.id, 'inPercentage', e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Battery ID</label>
+                    <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-30" value={cycle.outBatteryId || ''} onChange={e => updateCycle(cycle.id, 'outBatteryId', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Percentage</label>
+                    <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 100" value={cycle.outPercentage || ''} onChange={e => updateCycle(cycle.id, 'outPercentage', e.target.value)} />
+                  </div>
+                </div>
+                {taskType === 'battery_swap' && (
+                  <>
+                    <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-sm text-gray-500 mb-1">IN Time</label>
+                        <button type="button" onClick={() => {
+                          updateCycle(cycle.id, 'inTime', new Date().toLocaleTimeString('en-US', { hour12: false }));
+                          updateCycle(cycle.id, 'inTimestamp', Date.now());
+                        }} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.inTime ? 'bg-gray-100 text-gray-900' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+                          {cycle.inTime || 'Record IN'}
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-500 mb-1">OUT Time (Auto-saves)</label>
+                        <button type="button" disabled={isSubmitting || (cycle.inTimestamp && !isSwapReady)} onClick={() => handleRecordOutAndSave(cycle.id)} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.outTime ? 'bg-gray-100 text-gray-900' : 'bg-green-50 text-green-600 hover:bg-green-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                          {cycle.outTime || (isSubmitting ? 'Saving...' : 'Record OUT & Save')}
+                        </button>
+                      </div>
+                    </div>
+                    <SwapTimer startTime={cycle.inTimestamp} isFinished={!!cycle.outTime} onReadyStateChange={setIsSwapReady} />
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
+                  <input
+                    required
+                    type="text"
+                    list={`cycle-suggestions-${cycle.id}`}
+                    className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 font-medium"
+                    placeholder="e.g. 101"
+                    value={cycle.cycleId}
+                    onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)}
+                  />
+                  {(assignedCycles.length > 0 || eligibleCycles.length > 0) && (
+                    <datalist id={`cycle-suggestions-${cycle.id}`}>
+                      {assignedCycles.map((cId, i) => (
+                        <option key={`assign-${i}`} value={cId}>{cId} (Assigned)</option>
+                      ))}
+                      {eligibleCycles.map((c, i) => (
+                        <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>{c.cycleId || c.cycle_id}</option>
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-500 mb-1">Battery ID (Optional)</label>
+                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 70" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
+                </div>
+
+
+                {(taskType === 'overall' || taskType === 'pretask') && renderPartsChecked(cycle)}
+
+                <div className="mb-4">
+                  <label className="block text-sm  text-gray-500 mb-1">Condition</label>
+                  <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.condition} onChange={e => updateCycle(cycle.id, 'condition', e.target.value)}>
+                    <option value="good">All Good</option>
+                    <option value="issue">Has Issue</option>
+                  </select>
+                </div>
+
+                {cycle.condition === 'issue' && (
+                  <div className="mb-4">
+                    <label className="block text-sm  text-gray-500 mb-1">Issue Description</label>
+                    <textarea required className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" rows="2" placeholder="Describe the issue..." value={cycle.issue} onChange={e => updateCycle(cycle.id, 'issue', e.target.value)} />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ))
       )}
 
-      {cycles.map((cycle, index) => (
-        <div key={cycle.id} className="mb-6 bg-transparent relative">
-          {taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'battery_test' && (
-            <div className="flex justify-between items-center mb-2">
-              <span className="font-semibold text-gray-900">
-                {cycles.length > 1 ? `Cycle #${index + 1}` : ''}
-              </span>
-              {index > 0 && (
-                <button type="button" onClick={() => removeCycle(cycle.id)} className="text-red-500 text-sm">
-                  Remove
-                </button>
-              )}
-            </div>
-          )}
-
-          {taskType === 'maintenance' ? (
-            <>
-              <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Broken Cycle ID</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 93" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
-                {knownIssueAlert && (
-                  <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-xl text-sm text-amber-800 font-medium">
-                    {knownIssueAlert}
-                  </div>
-                )}
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Defect Category / Issue</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. E-10 Error" value={cycle.category} onChange={e => updateCycle(cycle.id, 'category', e.target.value)} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Repair Action Taken</label>
-                <textarea required rows="3" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="Describe fix..." value={cycle.fixDescription} onChange={e => updateCycle(cycle.id, 'fixDescription', e.target.value)} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Odometer</label>
-                <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 1500" value={cycle.odometer} onChange={e => updateCycle(cycle.id, 'odometer', e.target.value)} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Status</label>
-                <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.status} onChange={e => updateCycle(cycle.id, 'status', e.target.value)}>
-                  <option value="Repaired">Repaired</option>
-                  <option value="Pending Parts">Pending Parts</option>
-                  <option value="In Progress">In Progress</option>
-                </select>
-              </div>
-            </>
-          ) : taskType === 'home_cycle' ? (
-            <>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Home Cycle ID</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 249" value={cycle.homeCycleId || ''} onChange={e => updateCycle(cycle.id, 'homeCycleId', e.target.value)} />
-              </div>
-            </>
-          ) : taskType === 'battery_test' ? (
-            <>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Battery ID</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Actual Battery %</label>
-                  <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 85" value={cycle.actualBatteryPercentage} onChange={e => updateCycle(cycle.id, 'actualBatteryPercentage', e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Actual Voltage</label>
-                  <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 52.5" value={cycle.actualVoltage} onChange={e => updateCycle(cycle.id, 'actualVoltage', e.target.value)} />
-                </div>
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Status</label>
-                <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.status} onChange={e => updateCycle(cycle.id, 'status', e.target.value)}>
-                  <option value="rest office">rest office</option>
-                  <option value="Rest Outside">Rest Outside</option>
-                  <option value="direct charge">direct charge</option>
-                  <option value="rest and charge">rest and charge</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Start Time</label>
-                  <input type="time" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" value={cycle.startTime} onChange={e => updateCycle(cycle.id, 'startTime', e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">End Time</label>
-                  <input type="time" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" value={cycle.endTime} onChange={e => updateCycle(cycle.id, 'endTime', e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Before Battery %</label>
-                  <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 20" value={cycle.beforeBatteryPercentage} onChange={e => updateCycle(cycle.id, 'beforeBatteryPercentage', e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">Before Voltage</label>
-                  <input type="number" step="0.1" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 48.0" value={cycle.beforeVoltage} onChange={e => updateCycle(cycle.id, 'beforeVoltage', e.target.value)} />
-                </div>
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Odometer (km)</label>
-                <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 1500" value={cycle.odometer} onChange={e => updateCycle(cycle.id, 'odometer', e.target.value)} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Notes</label>
-                <textarea rows="2" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="Additional notes..." value={cycle.notes} onChange={e => updateCycle(cycle.id, 'notes', e.target.value)} />
-              </div>
-            </>
-          ) : (taskType === 'battery_swap' || taskType === 'home_battery_swap') ? (
-            <>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
-                <input required type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. CYC-100" value={cycle.cycleId} onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)} />
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Battery ID</label>
-                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-25" value={cycle.inBatteryId || ''} onChange={e => updateCycle(cycle.id, 'inBatteryId', e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">IN Percentage</label>
-                  <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 20" value={cycle.inPercentage || ''} onChange={e => updateCycle(cycle.id, 'inPercentage', e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Battery ID</label>
-                  <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. BAT-30" value={cycle.outBatteryId || ''} onChange={e => updateCycle(cycle.id, 'outBatteryId', e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-gray-500 mb-1">OUT Percentage</label>
-                  <input type="number" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 100" value={cycle.outPercentage || ''} onChange={e => updateCycle(cycle.id, 'outPercentage', e.target.value)} />
-                </div>
-              </div>
-              {taskType === 'battery_swap' && (
-                <>
-                  <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm text-gray-500 mb-1">IN Time</label>
-                      <button type="button" onClick={() => {
-                        updateCycle(cycle.id, 'inTime', new Date().toLocaleTimeString('en-US', { hour12: false }));
-                        updateCycle(cycle.id, 'inTimestamp', Date.now());
-                      }} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.inTime ? 'bg-gray-100 text-gray-900' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
-                        {cycle.inTime || 'Record IN'}
-                      </button>
-                    </div>
-                    <div>
-                      <label className="block text-sm text-gray-500 mb-1">OUT Time (Auto-saves)</label>
-                      <button type="button" disabled={isSubmitting || (cycle.inTimestamp && !isSwapReady)} onClick={() => handleRecordOutAndSave(cycle.id)} className={`w-full p-4 rounded-xl font-semibold border-none transition active:scale-[0.98] ${cycle.outTime ? 'bg-gray-100 text-gray-900' : 'bg-green-50 text-green-600 hover:bg-green-100'} disabled:opacity-50 disabled:cursor-not-allowed`}>
-                        {cycle.outTime || (isSubmitting ? 'Saving...' : 'Record OUT & Save')}
-                      </button>
-                    </div>
-                  </div>
-                  <SwapTimer startTime={cycle.inTimestamp} isFinished={!!cycle.outTime} onReadyStateChange={setIsSwapReady} />
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Cycle ID</label>
-                <input
-                  required
-                  type="text"
-                  list={`cycle-suggestions-${cycle.id}`}
-                  className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 font-medium"
-                  placeholder="e.g. 101"
-                  value={cycle.cycleId}
-                  onChange={e => updateCycle(cycle.id, 'cycleId', e.target.value)}
-                />
-                {(assignedCycles.length > 0 || eligibleCycles.length > 0) && (
-                  <datalist id={`cycle-suggestions-${cycle.id}`}>
-                    {assignedCycles.map((cId, i) => (
-                      <option key={`assign-${i}`} value={cId}>{cId} (Assigned)</option>
-                    ))}
-                    {eligibleCycles.map((c, i) => (
-                      <option key={`elig-${i}`} value={c.cycleId || c.cycle_id}>{c.cycleId || c.cycle_id}</option>
-                    ))}
-                  </datalist>
-                )}
-              </div>
-              
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 mb-1">Battery ID (Optional)</label>
-                <input type="text" className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" placeholder="e.g. 70" value={cycle.batteryId || ''} onChange={e => updateCycle(cycle.id, 'batteryId', e.target.value)} />
-              </div>
-
-
-              {(taskType === 'overall' || taskType === 'pretask') && renderPartsChecked(cycle)}
-
-              <div className="mb-4">
-                <label className="block text-sm  text-gray-500 mb-1">Condition</label>
-                <select className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900 appearance-none" value={cycle.condition} onChange={e => updateCycle(cycle.id, 'condition', e.target.value)}>
-                  <option value="good">All Good</option>
-                  <option value="issue">Has Issue</option>
-                </select>
-              </div>
-
-              {cycle.condition === 'issue' && (
-                <div className="mb-4">
-                  <label className="block text-sm  text-gray-500 mb-1">Issue Description</label>
-                  <textarea required className="w-full p-4 rounded-xl bg-gray-100 border-none outline-none focus:ring-2 focus:ring-black text-gray-900" rows="2" placeholder="Describe the issue..." value={cycle.issue} onChange={e => updateCycle(cycle.id, 'issue', e.target.value)} />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      ))}
-
-      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'home_cycle' && taskType !== 'battery_test' && (
+      {taskType !== 'maintenance' && taskType !== 'battery_swap' && taskType !== 'home_battery_swap' && taskType !== 'home_cycle' && taskType !== 'battery_test' && taskType !== 'routine' && (
         <button type="button" onClick={addCycle} className="w-full py-2 mb-6 bg-transparent border-none text-gray-500  text-sm flex items-center justify-center gap-1 hover:text-black transition">
           <Plus size={16} /> Add Another Cycle
         </button>
@@ -939,7 +1210,9 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           Back
         </button>
         <button type="button" onClick={() => {
-          if (taskType === 'battery_swap' || taskType === 'home_battery_swap') {
+          if (taskType === 'routine') {
+            toggleAllRoutine(false);
+          } else if (taskType === 'battery_swap' || taskType === 'home_battery_swap') {
             setCycles([{ id: Date.now(), cycleId: '', batteryId: '', inVoltage: '', inPercentage: '', inTime: null, inTimestamp: null, outVoltage: '', outPercentage: '', outTime: null, condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
           } else {
             setCycles([{ id: Date.now(), cycleId: '', condition: 'good', issue: '', partsChecked: [], category: '', fixDescription: '', odometer: '', status: 'Repaired' }]);
@@ -947,11 +1220,15 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           setSaveMsg('');
           setSaveError('');
         }} className="flex-1 sm:flex-initial px-5 py-3 sm:py-2.5 bg-red-50 text-red-600 rounded-full text-sm font-medium hover:bg-red-100 transition text-center min-h-[44px]">
-          Clear
+          {taskType === 'routine' ? 'Deselect All' : 'Clear'}
         </button>
         {taskType !== 'battery_swap' && (
-          <button type="submit" disabled={isSubmitting} className="w-full sm:w-auto px-8 py-3 sm:py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold hover:bg-black transition shadow-sm disabled:opacity-50 text-center min-h-[44px]">
-            {isSubmitting ? 'Saving...' : (taskType === 'home_battery_swap' ? 'Save Swap' : 'Save')}
+          <button type="submit" disabled={isSubmitting || (taskType === 'routine' && routineItems.filter(i => i.checked).length === 0)} className="w-full sm:w-auto px-8 py-3 sm:py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold hover:bg-black transition shadow-sm disabled:opacity-50 text-center min-h-[44px]">
+            {isSubmitting
+              ? 'Saving...'
+              : taskType === 'routine'
+              ? `Submit Routine Checkup (${routineItems.filter(i => i.checked).length})`
+              : (taskType === 'home_battery_swap' ? 'Save Swap' : 'Save')}
           </button>
         )}
       </div>
