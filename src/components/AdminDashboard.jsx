@@ -7,7 +7,7 @@ import {
   Check, PlusCircle, MinusCircle, Sparkles, Table as TableIcon, ArrowUp, ArrowDown, ListFilter 
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
-import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey } from '../utils';
+import { getCurrentShiftWindow, getDailyAssignments, getLocalDateKey, getStoredAssignments, saveStoredAssignments } from '../utils';
 import {
   refineTextWithAI,
   refineReportParagraphsWithAI,
@@ -108,12 +108,7 @@ export default function AdminDashboard() {
   const [assignMsg, setAssignMsg] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [currentAssignments, setCurrentAssignments] = useState(() => {
-    try {
-      const saved = localStorage.getItem('zum_assignments_latest');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
+    return getStoredAssignments(getLocalDateKey());
   });
   const [hiddenForms, setHiddenForms] = useState({});
 
@@ -339,10 +334,7 @@ export default function AdminDashboard() {
 
   const persistAssignments = async (updatedMap, entriesToSync = []) => {
     setCurrentAssignments(updatedMap);
-    try {
-      localStorage.setItem(`zum_assignments_${reportDateKey}`, JSON.stringify(updatedMap));
-      localStorage.setItem('zum_assignments_latest', JSON.stringify(updatedMap));
-    } catch (e) {}
+    saveStoredAssignments(updatedMap, reportDateKey);
 
     for (const entry of entriesToSync) {
       // 1. Save to Google Sheets (Always works even if Supabase is paused)
@@ -561,20 +553,28 @@ export default function AdminDashboard() {
         .order('created_at', { ascending: false });
         
       let latestAssignments = {};
-      try {
-        const localSaved = localStorage.getItem(`zum_assignments_${reportDateKey}`) || localStorage.getItem('zum_assignments_latest');
-        if (localSaved) latestAssignments = JSON.parse(localSaved);
-      } catch (e) {}
-
+      
+      // 1. First populate from Supabase assignments for this specific shift/date window
       if (assignmentsData && assignmentsData.length > 0) {
         assignmentsData.forEach(row => {
-          if (!latestAssignments[row.staff_name]) {
+          if (row.staff_name && row.cycles && !latestAssignments[row.staff_name]) {
             latestAssignments[row.staff_name] = row.cycles;
           }
         });
       }
       
+      // 2. Fall back to local storage ONLY for this specific report date
+      const localForDate = getStoredAssignments(reportDateKey);
+      if (Object.keys(latestAssignments).length === 0) {
+        latestAssignments = localForDate;
+      } else {
+        Object.entries(localForDate).forEach(([s, c]) => {
+          if (!latestAssignments[s]) latestAssignments[s] = c;
+        });
+      }
+      
       setCurrentAssignments(latestAssignments);
+      saveStoredAssignments(latestAssignments, reportDateKey);
 
       if (tasksData) {
         const seenTasks = new Set();

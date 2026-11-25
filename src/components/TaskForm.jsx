@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Check, AlertCircle } from 'lucide-react';
 import { supabase } from '../supabaseClient';
-import { getCurrentShiftWindow } from '../utils';
+import { getCurrentShiftWindow, getLocalDateKey, getStoredAssignments, saveStoredAssignments } from '../utils';
 
 const PARTS_LIST = [
   { name: 'Basket', color: '#f59e0b' },
@@ -68,12 +68,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   const [eligibleCycles, setEligibleCycles] = useState([]);
   const [assignedCycles, setAssignedCycles] = useState([]);
   const [allRoutineAssignments, setAllRoutineAssignments] = useState(() => {
-    try {
-      const saved = localStorage.getItem('zum_assignments_latest');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
+    return getStoredAssignments(getLocalDateKey());
   });
 
   // For Maintenance - known issues lookup
@@ -109,14 +104,11 @@ export default function TaskForm({ taskType, staffName, onBack }) {
       if (taskType === 'pretask' || taskType === 'routine') {
         setIsSyncing(true);
         const { start, end } = getCurrentShiftWindow();
+        const todayKey = getLocalDateKey();
         
         try {
-          // Load local assignments first so it works offline or when Supabase is paused
-          let mergedMap = {};
-          try {
-            const raw = localStorage.getItem('zum_assignments_latest');
-            if (raw) mergedMap = { ...JSON.parse(raw) };
-          } catch (e) {}
+          // Only load today's stored assignments
+          let mergedMap = getStoredAssignments(todayKey);
 
           const applyStaffAssignedCycles = (mapObj) => {
             const staffMatch = Object.keys(mapObj).find(
@@ -127,8 +119,8 @@ export default function TaskForm({ taskType, staffName, onBack }) {
               : [];
             setAssignedCycles(arr);
 
-            // Auto-populate the Routine checklist items from assigned cycles
-            if (taskType === 'routine' && arr.length > 0) {
+            // Auto-populate the Routine checklist items exclusively from today's assigned cycles
+            if (taskType === 'routine') {
               setRoutineItems(prev => {
                 const existingMap = new Map(prev.map(item => [item.cycleId, item]));
                 const merged = arr.map(cId => {
@@ -140,6 +132,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                     issue: ''
                   };
                 });
+                // Keep any custom extra cycles staff manually added during this session
                 prev.filter(p => p.isCustom && !arr.includes(p.cycleId)).forEach(extra => {
                   merged.push(extra);
                 });
@@ -150,7 +143,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
 
           applyStaffAssignedCycles(mergedMap);
 
-          // 1. Fetch assignments from Google Sheets (works across devices even when Supabase is paused)
+          // 1. Fetch assignments from Google Sheets (Current shift only)
           try {
             const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
             const sheetRes = await fetch(APPS_SCRIPT_URL);
@@ -158,14 +151,14 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             if (sheetJson && sheetJson.assignments && typeof sheetJson.assignments === 'object') {
               Object.entries(sheetJson.assignments).forEach(([sName, cList]) => {
                 const str = Array.isArray(cList) ? cList.join(', ') : String(cList || '');
-                if (str.trim() && !mergedMap[sName]) {
+                if (str.trim()) {
                   mergedMap[sName] = str;
                 }
               });
             }
           } catch (e) {}
 
-          // 2. Fetch assignments for routine from Supabase
+          // 2. Fetch assignments for routine from Supabase for current shift window
           try {
             const { data: assignData } = await supabase
               .from('assignments')
@@ -184,12 +177,10 @@ export default function TaskForm({ taskType, staffName, onBack }) {
           } catch (e) {}
 
           setAllRoutineAssignments(mergedMap);
-          try {
-            localStorage.setItem('zum_assignments_latest', JSON.stringify(mergedMap));
-          } catch (e) {}
+          saveStoredAssignments(mergedMap, todayKey);
           applyStaffAssignedCycles(mergedMap);
 
-          // Fetch all cycles interacted with during the current shift
+          // Fetch all cycles interacted with during the current shift for suggestions only
           const { data: allData } = await supabase
             .from('tasks')
             .select('*')
@@ -209,17 +200,6 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             }
             const elig = Object.values(unique);
             setEligibleCycles(elig);
-            if (taskType === 'routine' && elig.length > 0) {
-              setRoutineItems(prev => {
-                if (prev.length > 0) return prev;
-                return elig.map(c => ({
-                  cycleId: String(c.cycle_id || c.cycleId).trim(),
-                  checked: true,
-                  condition: 'good',
-                  issue: ''
-                }));
-              });
-            }
           }
         } catch (error) {
           console.error("Error fetching assignments:", error);

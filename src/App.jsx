@@ -5,7 +5,7 @@ import FeedbackForm from "./components/FeedbackForm";
 import OfflineCyclesForm from "./components/OfflineCyclesForm";
 import AdminDashboard from "./components/AdminDashboard";
 import { supabase } from "./supabaseClient";
-import { getCurrentShiftWindow } from "./utils";
+import { getCurrentShiftWindow, getLocalDateKey, getStoredAssignments, saveStoredAssignments } from "./utils";
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
 
@@ -16,12 +16,7 @@ function App() {
   const [postponements, setPostponements] = useState({ station: [], overall: [], manualStation: {}, manualOverall: {} });
   const [hiddenForms, setHiddenForms] = useState({});
   const [allAssignments, setAllAssignments] = useState(() => {
-    try {
-      const raw = localStorage.getItem('zum_assignments_latest');
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
+    return getStoredAssignments(getLocalDateKey());
   });
 
   useEffect(() => {
@@ -66,11 +61,8 @@ function App() {
       };
 
       const fetchAssignmentsForHome = async () => {
-        let merged = {};
-        try {
-          const raw = localStorage.getItem('zum_assignments_latest');
-          if (raw) merged = { ...JSON.parse(raw) };
-        } catch (e) {}
+        const todayKey = getLocalDateKey();
+        let merged = getStoredAssignments(todayKey);
 
         // 1. Fetch from Google Sheets Assignments tab (works across devices even when Supabase is paused)
         try {
@@ -79,7 +71,7 @@ function App() {
           if (json && json.assignments && typeof json.assignments === 'object') {
             Object.entries(json.assignments).forEach(([sName, cList]) => {
               const str = Array.isArray(cList) ? cList.join(', ') : String(cList || '');
-              if (str.trim() && !merged[sName]) {
+              if (str.trim()) {
                 merged[sName] = str;
               }
             });
@@ -105,9 +97,7 @@ function App() {
         } catch (e) {}
 
         setAllAssignments(merged);
-        try {
-          localStorage.setItem('zum_assignments_latest', JSON.stringify(merged));
-        } catch (e) {}
+        saveStoredAssignments(merged, todayKey);
       };
 
       fetchPostponements();

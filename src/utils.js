@@ -81,3 +81,28 @@ export function getCurrentShiftWindow(date = new Date()) {
     end: shiftEnd.toISOString()
   };
 }
+
+export function getStoredAssignments(dateKey = getLocalDateKey()) {
+  try {
+    const raw = localStorage.getItem(`zum_assignments_${dateKey}`);
+    if (raw) return JSON.parse(raw);
+
+    const latestRaw = localStorage.getItem('zum_assignments_latest');
+    if (latestRaw) {
+      const parsed = JSON.parse(latestRaw);
+      if (parsed && parsed.date === dateKey && parsed.map) {
+        return parsed.map;
+      }
+    }
+    return {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export function saveStoredAssignments(map, dateKey = getLocalDateKey()) {
+  try {
+    localStorage.setItem(`zum_assignments_${dateKey}`, JSON.stringify(map));
+    localStorage.setItem('zum_assignments_latest', JSON.stringify({ date: dateKey, map }));
+  } catch (e) {}
+}

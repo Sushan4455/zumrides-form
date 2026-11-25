@@ -7,20 +7,10 @@ function doGet(e) {
     if(isNaN(d.getTime())) return false;
     
     var now = new Date();
-    var shiftStart, shiftEnd;
-    
-    // If it is currently before 12:00 PM (Noon), the shift started yesterday at Noon
-    if (now.getHours() < 12) {
-      shiftStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0, 0);
-      shiftEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
-    } 
-    // If it is currently after 12:00 PM (Noon), the shift started today at Noon
-    else {
-      shiftStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
-      shiftEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12, 0, 0, 0);
-    }
-    
-    return d.getTime() >= shiftStart.getTime() && d.getTime() < shiftEnd.getTime();
+    // Shift is the current calendar day (00:00:00 to 23:59:59)
+    return d.getFullYear() === now.getFullYear() &&
+           d.getMonth() === now.getMonth() &&
+           d.getDate() === now.getDate();
   }
   
   // ==========================================
