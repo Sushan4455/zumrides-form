@@ -2306,7 +2306,7 @@ export default function AdminDashboard() {
 
                   <div className="flex flex-col gap-3 mb-5">
                     {assignmentRows.map((row, idx) => (
-                      <div key={row.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 sm:gap-3 items-end bg-[#F5F5F7]/70 p-3 sm:p-3.5 rounded-2xl border border-black/[0.04]">
+                      <div key={row.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 sm:gap-3 items-end bg-[#F5F5F7] p-3 sm:p-3.5 rounded-2xl border border-black/[0.04]">
                         <div className="sm:col-span-5">
                           <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#86868B] mb-1.5">
                             Staff Name {assignmentRows.length > 1 ? `#${idx + 1}` : '(Type or Select)'}
@@ -2317,7 +2317,7 @@ export default function AdminDashboard() {
                             placeholder="Type any name (e.g. Kabir, Ram...)"
                             value={row.staff}
                             onChange={e => setAssignmentRows(assignmentRows.map(r => r.id === row.id ? { ...r, staff: e.target.value } : r))}
-                            className="w-full p-3 rounded-xl border border-black/[0.08] outline-none focus:ring-2 focus:ring-black/10 text-[#1D1D1F] text-sm bg-white transition"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/[0.08] outline-none focus:border-black/30 focus:ring-2 focus:ring-black/5 text-[#1D1D1F] text-sm transition placeholder:text-[#86868B]"
                           />
                         </div>
                         <div className={assignmentRows.length > 1 ? 'sm:col-span-6' : 'sm:col-span-7'}>
@@ -2329,7 +2329,7 @@ export default function AdminDashboard() {
                             placeholder="e.g. 101  or  101, 55, 89"
                             value={row.cycles}
                             onChange={e => setAssignmentRows(assignmentRows.map(r => r.id === row.id ? { ...r, cycles: e.target.value } : r))}
-                            className="w-full p-3 rounded-xl border border-black/[0.08] outline-none focus:ring-2 focus:ring-black/10 text-[#1D1D1F] text-sm bg-white transition"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/[0.08] outline-none focus:border-black/30 focus:ring-2 focus:ring-black/5 text-[#1D1D1F] text-sm transition placeholder:text-[#86868B]"
                           />
                         </div>
                         {assignmentRows.length > 1 && (
@@ -2517,12 +2517,70 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* 2-Week Schedule UI */}
-                <div className="bg-white p-5 sm:p-6 rounded-2xl border border-black/[0.06]">
-                  <h3 className="text-[#1D1D1F] text-[17px] font-semibold tracking-tight mb-4">Upcoming Schedule (Next 14 Days)</h3>
-                  <div className="overflow-x-auto">
+                <div className="bg-white p-4 sm:p-6 rounded-2xl border border-black/[0.06]">
+                  <h3 className="text-[#1D1D1F] text-[17px] font-semibold tracking-tight mb-3">Upcoming Schedule (Next 14 Days)</h3>
+                  
+                  {/* Mobile Card List for Schedule */}
+                  <div className="flex flex-col gap-2.5 sm:hidden">
+                    {upcomingSchedule.map((day, idx) => (
+                      <div key={idx} className="bg-[#F5F5F7] p-3.5 rounded-xl border border-black/[0.04] flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm text-[#1D1D1F]">{day.dateString}</span>
+                          {idx === 0 && <span className="px-2 py-0.5 bg-[#1D1D1F] text-white rounded-full text-[10px] uppercase font-semibold tracking-wider">Today</span>}
+                          {idx === 1 && <span className="px-2 py-0.5 bg-white border border-black/[0.06] text-[#6E6E73] rounded-full text-[10px] uppercase font-semibold tracking-wider">Tomorrow</span>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="bg-white p-2.5 rounded-lg border border-black/[0.04]">
+                            <span className="block text-[10px] font-semibold text-[#86868B] uppercase tracking-wider mb-1">Overall Visit</span>
+                            {day.overall ? (
+                              <div className="flex flex-col gap-1.5">
+                                <span className="font-semibold text-[#1D1D1F]">{day.overall}</span>
+                                {idx === 0 && (
+                                  <button onClick={() => handlePostpone(day.dateKey, 'overall')} className="self-start text-[11px] text-red-600 hover:underline">
+                                    Postpone
+                                  </button>
+                                )}
+                              </div>
+                            ) : postponements.overall.includes(day.dateKey) ? (
+                              <div className="flex items-center justify-between">
+                                <span className="text-red-600 font-semibold text-[11px]">Postponed</span>
+                                <button onClick={() => handleUndoPostpone(day.dateKey, 'overall')} className="text-[11px] text-[#1D1D1F] underline">Undo</button>
+                              </div>
+                            ) : (
+                              <span className="text-[#86868B]">—</span>
+                            )}
+                          </div>
+
+                          <div className="bg-white p-2.5 rounded-lg border border-black/[0.04]">
+                            <span className="block text-[10px] font-semibold text-[#86868B] uppercase tracking-wider mb-1">Station Visit</span>
+                            {day.station ? (
+                              <div className="flex flex-col gap-1.5">
+                                <span className="font-semibold text-[#1D1D1F]">{day.station}</span>
+                                {idx === 0 && (
+                                  <button onClick={() => handlePostpone(day.dateKey, 'station')} className="self-start text-[11px] text-red-600 hover:underline">
+                                    Postpone
+                                  </button>
+                                )}
+                              </div>
+                            ) : postponements.station.includes(day.dateKey) ? (
+                              <div className="flex items-center justify-between">
+                                <span className="text-red-600 font-semibold text-[11px]">Postponed</span>
+                                <button onClick={() => handleUndoPostpone(day.dateKey, 'station')} className="text-[11px] text-[#1D1D1F] underline">Undo</button>
+                              </div>
+                            ) : (
+                              <span className="text-[#86868B]">—</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop Table */}
+                  <div className="hidden sm:block overflow-x-auto">
                     <table className="w-full text-left border-collapse min-w-[500px]">
                       <thead>
-                        <tr className="border-b border-black/[0.06] text-[11px] text-[#86868B] uppercase tracking-wider">
+                        <tr className="border-b border-black/[0.06] text-[11px] text-[#86868B] uppercase tracking-wider bg-[#FBFBFD]">
                           <th className="py-3 px-4 font-semibold">Date</th>
                           <th className="py-3 px-4 font-semibold">Overall Visit</th>
                           <th className="py-3 px-4 font-semibold">Station Visit</th>
@@ -2632,39 +2690,62 @@ export default function AdminDashboard() {
             )}
 
             {/* Master Database UI */}
-            {activeTab === 'manage_data' && (
-              <div className="w-full">
+            {activeTab === 'manage_data' && (() => {
+              const filteredGlobal = globalData
+                .filter(item => dataFilter === 'All' || item.task_type === dataFilter)
+                .filter(item => {
+                  if (!dataSearch.trim()) return true;
+                  const term = dataSearch.toLowerCase();
+                  return String(item.cycle_id).includes(term) || (item.staff_name && item.staff_name.toLowerCase().includes(term));
+                })
+                .filter(item => {
+                  if (!dataDateFilter) return true;
+                  try {
+                    const itemDate = new Date(item.created_at).toISOString().split('T')[0];
+                    return itemDate === dataDateFilter;
+                  } catch {
+                    return true;
+                  }
+                });
+
+              return (
+              <div className="w-full flex flex-col gap-4">
                 {/* Header Section */}
-                <div className="flex flex-col gap-4 mb-4">
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-black/[0.06] flex flex-col gap-4">
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                     <div>
-                      <h3 className="text-[#1D1D1F] text-lg font-semibold tracking-tight">Master Data Archive</h3>
-                      <p className="text-xs text-[#86868B]">Browse, filter, inspect, or edit all submitted operational logs.</p>
+                      <h3 className="text-[#1D1D1F] text-[18px] sm:text-[19px] font-semibold tracking-tight">Master Data Archive</h3>
+                      <p className="text-[13px] text-[#86868B] mt-0.5">Browse, filter, inspect, or edit all submitted operational logs.</p>
                     </div>
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
                       <div className="relative w-full sm:w-64">
-                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#86868B]" />
+                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#86868B] pointer-events-none" />
                         <input 
                           type="text"
                           placeholder="Search cycle, staff..."
                           value={dataSearch}
                           onChange={e => setDataSearch(e.target.value)}
-                          className="w-full pl-9 pr-4 py-2 bg-white border border-black/[0.08] outline-none focus:ring-2 focus:ring-black/10 text-[13px] rounded-full text-[#1D1D1F] placeholder-[#86868B] transition-all"
+                          className="w-full pl-9 pr-8 py-2 bg-[#F5F5F7] border border-transparent focus:bg-white focus:border-black/20 focus:ring-2 focus:ring-black/5 outline-none text-[13px] rounded-xl text-[#1D1D1F] placeholder-[#86868B] transition-all"
                         />
+                        {dataSearch && (
+                          <button onClick={() => setDataSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#86868B] hover:text-[#1D1D1F] p-0.5">
+                            <X size={13} />
+                          </button>
+                        )}
                       </div>
                       <div className="relative">
-                        <div className="flex items-center bg-white border border-black/[0.08] rounded-full px-3.5 py-2 transition-all focus-within:ring-2 focus-within:ring-black/10 justify-between sm:justify-start">
-                          <div className="flex items-center">
-                            <Filter size={14} className="text-[#86868B] mr-2 shrink-0" />
+                        <div className="flex items-center bg-[#F5F5F7] border border-transparent focus-within:bg-white focus-within:border-black/20 focus-within:ring-2 focus-within:ring-black/5 rounded-xl px-3 py-1.5 transition-all justify-between sm:justify-start">
+                          <div className="flex items-center gap-1.5 w-full">
+                            <Filter size={14} className="text-[#86868B] shrink-0" />
                             <input 
                               type="date"
                               value={dataDateFilter}
                               onChange={e => setDataDateFilter(e.target.value)}
-                              className="bg-transparent border-none outline-none text-[13px] text-[#1D1D1F] w-full sm:w-[125px] cursor-pointer"
+                              className="bg-transparent border-none outline-none text-[13px] text-[#1D1D1F] font-medium w-full sm:w-[125px] cursor-pointer"
                             />
                           </div>
                           {dataDateFilter && (
-                            <button onClick={() => setDataDateFilter('')} className="ml-1.5 text-[#86868B] hover:text-[#1D1D1F]">
+                            <button onClick={() => setDataDateFilter('')} className="ml-1.5 text-[#86868B] hover:text-[#1D1D1F] p-0.5" title="Clear date">
                               <X size={13} />
                             </button>
                           )}
@@ -2673,29 +2754,142 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   
-                  {/* Pills */}
-                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide no-scrollbar">
-                    {['All', 'Routine Checkup', 'Pre-Task Check', 'Overall Checkup', 'Station Visit', 'Maintenance', 'Battery Swap', 'Home Cycle', 'Battery Test'].map(filter => (
-                      <button 
-                        key={filter}
-                        onClick={() => setDataFilter(filter)}
-                        className={`whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-medium transition-all border ${
-                          dataFilter === filter
-                            ? 'bg-[#1D1D1F] text-white border-[#1D1D1F]'
-                            : 'bg-white text-[#6E6E73] border-black/[0.07] hover:text-[#1D1D1F] hover:border-black/15'
-                        }`}
-                      >
-                        {filter}
-                      </button>
-                    ))}
+                  {/* Category Pills */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+                    {['All', 'Routine Checkup', 'Pre-Task Check', 'Overall Checkup', 'Station Visit', 'Maintenance', 'Battery Swap', 'Home Cycle', 'Battery Test'].map(filter => {
+                      const isSelected = dataFilter === filter;
+                      return (
+                        <button 
+                          key={filter}
+                          onClick={() => setDataFilter(filter)}
+                          className={`whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                            isSelected
+                              ? 'bg-[#1D1D1F] text-white'
+                              : 'bg-[#F5F5F7] text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-[#EAEAEA] border border-black/[0.04]'
+                          }`}
+                        >
+                          {filter}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Table Section */}
-                <div className="overflow-x-auto bg-white rounded-2xl border border-black/[0.06]">
+                {/* Mobile Responsive Form-Cards View (Visible on Mobile Screens) */}
+                <div className="flex flex-col gap-2.5 sm:hidden">
+                  {isLoadingGlobal ? (
+                    <div className="bg-white p-8 rounded-2xl border border-black/[0.06] text-center text-sm text-[#86868B] flex items-center justify-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-[#1D1D1F]" />
+                      Loading master database...
+                    </div>
+                  ) : filteredGlobal.length === 0 ? (
+                    <div className="bg-white p-8 rounded-2xl border border-black/[0.06] text-center flex flex-col items-center justify-center gap-2">
+                      <p className="text-sm font-semibold text-[#1D1D1F]">No records found</p>
+                      <p className="text-xs text-[#86868B]">Try adjusting your search, date filter, or selected category.</p>
+                      {(dataSearch || dataDateFilter || dataFilter !== 'All') && (
+                        <button
+                          onClick={() => { setDataSearch(''); setDataDateFilter(''); setDataFilter('All'); }}
+                          className="mt-2 px-3.5 py-1.5 bg-[#F5F5F7] hover:bg-[#EAEAEA] text-[#1D1D1F] rounded-full text-xs font-semibold transition"
+                        >
+                          Reset Filters
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    filteredGlobal.map(item => {
+                      const hasIssue = item.condition === 'issue' || !!item.issue;
+                      let dateStr = '';
+                      let timeStr = '';
+                      try {
+                        const d = new Date(item.created_at);
+                        dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                      } catch {
+                        dateStr = item.created_at || '';
+                      }
+
+                      return (
+                        <div key={`${item.source}-${item.id}`} className="bg-white p-4 rounded-2xl border border-black/[0.06] flex flex-col gap-3">
+                          {/* Card Header: Cycle ID, Type & Issue Badge */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-[#1D1D1F] text-[16px] tracking-tight">#{item.cycle_id}</span>
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#F5F5F7] text-[#1D1D1F] border border-black/[0.04]">
+                                {item.task_type}
+                              </span>
+                            </div>
+                            {hasIssue ? (
+                              <span className="inline-flex items-center gap-1 bg-red-50 text-red-600 border border-red-200/60 px-2.5 py-0.5 rounded-full text-[10px] font-semibold">
+                                <AlertTriangle size={11} /> Issue
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                ✓ Good
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Inner Form Module: Staff & Date Details */}
+                          <div className="grid grid-cols-2 gap-2.5 bg-[#F5F5F7] p-3 rounded-xl border border-black/[0.03]">
+                            <div>
+                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#86868B] mb-1">Staff Member</span>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-5 h-5 rounded-full bg-[#1D1D1F] text-white flex items-center justify-center text-[10px] font-semibold shrink-0">
+                                  {item.staff_name ? item.staff_name.charAt(0).toUpperCase() : 'Z'}
+                                </div>
+                                <span className="font-semibold text-xs text-[#1D1D1F] truncate">{item.staff_name || 'N/A'}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#86868B] mb-1">Date & Time</span>
+                              <span className="block font-semibold text-xs text-[#1D1D1F] truncate">{dateStr}</span>
+                              <span className="text-[10px] text-[#86868B]">{timeStr}</span>
+                            </div>
+                          </div>
+
+                          {/* Optional Issue or Note Preview */}
+                          {item.issue && (
+                            <div className="bg-red-50/70 px-3 py-2 rounded-xl border border-red-200/60 text-[12px] text-red-950 leading-snug">
+                              <span className="font-semibold text-red-700 block text-[10px] uppercase tracking-wider mb-0.5">Reported Issue:</span>
+                              {item.issue}
+                            </div>
+                          )}
+
+                          {/* Action Buttons: Min 40-44px touch targets */}
+                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-black/[0.04]">
+                            <button
+                              type="button"
+                              onClick={() => setViewingRecord(item)}
+                              className="px-3.5 py-2 bg-[#F5F5F7] hover:bg-[#EAEAEA] active:scale-95 text-[#1D1D1F] rounded-full text-xs font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <Eye size={13} /> View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingRecord(item)}
+                              className="px-3.5 py-2 bg-[#F5F5F7] hover:bg-[#EAEAEA] active:scale-95 text-[#1D1D1F] rounded-full text-xs font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <Edit3 size={13} /> Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRecord(item.source, item.id)}
+                              className="px-3.5 py-2 bg-red-50 hover:bg-red-100 active:scale-95 text-red-600 rounded-full text-xs font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Desktop Table View (Hidden on Small Screens, Clean Flat Table on Desktop) */}
+                <div className="hidden sm:block overflow-x-auto bg-white rounded-2xl border border-black/[0.06]">
                   <table className="w-full text-left min-w-[640px]">
                     <thead>
-                      <tr className="text-[11px] text-[#86868B] uppercase tracking-wider border-b border-black/[0.06]">
+                      <tr className="text-[11px] text-[#86868B] uppercase tracking-wider border-b border-black/[0.06] bg-[#FBFBFD]">
                         <th className="py-3.5 px-4 font-semibold">Cycle</th>
                         <th className="py-3.5 px-4 font-semibold">Type</th>
                         <th className="py-3.5 px-4 font-semibold">Staff</th>
@@ -2707,21 +2901,9 @@ export default function AdminDashboard() {
                       {isLoadingGlobal ? (
                         <tr><td colSpan="5" className="py-12 text-center text-[#86868B]">Loading master database...</td></tr>
                       ) : (
-                        globalData
-                          .filter(item => dataFilter === 'All' || item.task_type === dataFilter)
-                          .filter(item => {
-                            if (!dataSearch.trim()) return true;
-                            const term = dataSearch.toLowerCase();
-                            return String(item.cycle_id).includes(term) || item.staff_name.toLowerCase().includes(term);
-                          })
-                          .filter(item => {
-                            if (!dataDateFilter) return true;
-                            const itemDate = new Date(item.created_at).toISOString().split('T')[0];
-                            return itemDate === dataDateFilter;
-                          })
-                          .map(item => {
-                            const hasIssue = item.condition === 'issue' || !!item.issue;
-                            return (
+                        filteredGlobal.map(item => {
+                          const hasIssue = item.condition === 'issue' || !!item.issue;
+                          return (
                           <tr key={`${item.source}-${item.id}`} className="hover:bg-[#F5F5F7]/60 transition-colors group">
                             <td className="py-3.5 px-4">
                               <div className="flex items-center gap-2">
@@ -2738,22 +2920,24 @@ export default function AdminDashboard() {
                                 {item.task_type}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-[#1D1D1F] font-medium text-[13px] flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-[#F5F5F7] border border-black/[0.06] flex items-center justify-center text-[11px] font-semibold text-[#1D1D1F]">
-                                {item.staff_name.charAt(0)}
+                            <td className="py-3.5 px-4 text-[#1D1D1F] font-medium text-[13px]">
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-[#1D1D1F] text-white flex items-center justify-center text-[10px] font-semibold">
+                                  {item.staff_name ? item.staff_name.charAt(0).toUpperCase() : 'Z'}
+                                </div>
+                                <span>{item.staff_name}</span>
                               </div>
-                              {item.staff_name}
                             </td>
                             <td className="py-3.5 px-4">
                               <span className="text-[#1D1D1F] font-medium block text-[13px]">{new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                               <span className="text-[#86868B] text-[11px]">{new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                             </td>
                             <td className="py-3.5 px-4 text-right">
-                              <div className="flex justify-end gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => setViewingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-white rounded-lg transition" title="View Details">
+                              <div className="flex justify-end gap-1 opacity-100 sm:opacity-80 sm:group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => setViewingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-[#F5F5F7] rounded-lg transition" title="View Details">
                                   <Eye size={15} />
                                 </button>
-                                <button onClick={() => setEditingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-white rounded-lg transition" title="Edit">
+                                <button onClick={() => setEditingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-[#F5F5F7] rounded-lg transition" title="Edit">
                                   <Edit3 size={15} />
                                 </button>
                                 <button onClick={() => handleDeleteRecord(item.source, item.id)} className="p-1.5 text-[#86868B] hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete">
@@ -2765,46 +2949,82 @@ export default function AdminDashboard() {
                           )
                         })
                       )}
-                      {(!isLoadingGlobal && globalData.length === 0) && (
+                      {(!isLoadingGlobal && filteredGlobal.length === 0) && (
                         <tr><td colSpan="5" className="py-12 text-center text-[#86868B]">No records found matching your search.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* Active Issues UI */}
             {activeTab === 'issues' && (
-              <div className="w-full">
-                <div className="flex justify-between items-center mb-4">
+              <div className="w-full flex flex-col gap-4">
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-black/[0.06] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div>
-                    <h3 className="text-[#1D1D1F] text-lg font-semibold tracking-tight">Active Cycle Issues</h3>
-                    <p className="text-xs text-[#86868B]">Cycles flagged with unresolved maintenance or operational issues.</p>
+                    <h3 className="text-[#1D1D1F] text-[18px] sm:text-[19px] font-semibold tracking-tight">Active Cycle Issues</h3>
+                    <p className="text-[13px] text-[#86868B] mt-0.5">Cycles flagged with unresolved maintenance or operational issues.</p>
                   </div>
+                  {activeIssuesList.length > 0 && (
+                    <span className="self-start sm:self-auto px-3 py-1 bg-red-50 text-red-600 border border-red-200/60 rounded-full text-xs font-semibold">
+                      {activeIssuesList.length} Unresolved {activeIssuesList.length === 1 ? 'Issue' : 'Issues'}
+                    </span>
+                  )}
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {activeIssuesList.length === 0 ? (
-                    <div className="col-span-full p-10 text-center bg-white rounded-2xl border border-black/[0.06]">
-                      <p className="text-[#86868B] text-sm">No active issues found. All cycles are operating smoothly.</p>
+                    <div className="col-span-full p-10 text-center bg-white rounded-2xl border border-black/[0.06] flex flex-col items-center justify-center gap-2">
+                      <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-base mb-1">
+                        ✓
+                      </div>
+                      <p className="text-sm font-semibold text-[#1D1D1F]">All cycles operating smoothly</p>
+                      <p className="text-xs text-[#86868B]">No active or unresolved issues found in the fleet.</p>
                     </div>
                   ) : activeIssuesList.map(issue => (
-                    <div key={issue.id} className="bg-white p-5 rounded-2xl border border-black/[0.06] flex flex-col justify-between gap-3">
+                    <div key={issue.id} className="bg-white p-4 sm:p-5 rounded-2xl border border-black/[0.06] flex flex-col justify-between gap-3.5">
                       <div>
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                              <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></span>
                               <h4 className="text-xl font-bold text-[#1D1D1F] tracking-tight">#{issue.cycle_id}</h4>
                             </div>
-                            <span className="text-[11px] font-medium text-[#86868B] uppercase tracking-wider">{issue.task_type || 'Reported Issue'}</span>
+                            <span className="text-[11px] font-semibold text-[#86868B] uppercase tracking-wider block mt-0.5">
+                              {issue.task_type || 'Reported Issue'}
+                            </span>
                           </div>
-                          <button onClick={() => handleResolveIssue(issue)} className="px-3 py-1.5 bg-[#1D1D1F] text-white text-xs font-semibold rounded-full hover:bg-black transition active:scale-95">
+                          <button 
+                            type="button"
+                            onClick={() => handleResolveIssue(issue)} 
+                            className="px-4 py-2 bg-[#1D1D1F] text-white text-xs font-semibold rounded-full hover:bg-black transition active:scale-95"
+                          >
                             Mark Solved
                           </button>
                         </div>
-                        <p className="text-[13px] text-[#1D1D1F] bg-[#F5F5F7] p-3.5 rounded-2xl border border-black/[0.04] leading-relaxed">{issue.issue || issue.parts_checked || 'No details provided.'}</p>
+                        
+                        <div className="bg-[#F5F5F7] p-3.5 rounded-xl border border-black/[0.04]">
+                          <span className="block text-[10px] font-semibold text-red-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                            <AlertTriangle size={11} /> Issue Details
+                          </span>
+                          <p className="text-[13px] text-[#1D1D1F] font-medium leading-relaxed whitespace-pre-wrap">
+                            {issue.issue || issue.parts_checked || 'No details provided.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-[#86868B] pt-2 border-t border-black/[0.04]">
+                        <span className="flex items-center gap-1.5 font-medium text-[#1D1D1F]">
+                          <span className="w-4 h-4 rounded-full bg-[#1D1D1F] text-white flex items-center justify-center text-[9px] font-semibold">
+                            {issue.staff_name ? issue.staff_name.charAt(0).toUpperCase() : 'Z'}
+                          </span>
+                          {issue.staff_name || 'Staff'}
+                        </span>
+                        <span>
+                          {new Date(issue.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -2813,33 +3033,145 @@ export default function AdminDashboard() {
             )}
 
             {/* Repaired & Issues UI */}
-            {activeTab === 'repaired_issues' && (
-              <div className="w-full">
-                <div className="flex flex-col gap-4 mb-4">
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                    <div>
-                      <h3 className="text-[#1D1D1F] text-lg font-semibold tracking-tight">Repaired &amp; Issues Archive</h3>
-                      <p className="text-xs text-[#86868B]">Historical log of all reported cycle issues and completed maintenance repairs.</p>
-                    </div>
-                    <div className="flex items-center gap-3 w-full sm:w-auto">
-                      <div className="relative w-full sm:w-64">
-                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#86868B]" />
-                        <input 
-                          type="text"
-                          placeholder="Search cycle, staff..."
-                          value={repairedSearch}
-                          onChange={e => setRepairedSearch(e.target.value)}
-                          className="w-full pl-9 pr-4 py-2 bg-white border border-black/[0.08] outline-none focus:ring-2 focus:ring-black/10 text-[13px] rounded-full text-[#1D1D1F] placeholder-[#86868B] transition-all"
-                        />
-                      </div>
+            {activeTab === 'repaired_issues' && (() => {
+              const filteredRepaired = repairedIssuesData.filter(item => {
+                if (!repairedSearch.trim()) return true;
+                const term = repairedSearch.toLowerCase();
+                return String(item.cycle_id).includes(term) || (item.staff_name && item.staff_name.toLowerCase().includes(term));
+              });
+
+              return (
+              <div className="w-full flex flex-col gap-4">
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-black/[0.06] flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                  <div>
+                    <h3 className="text-[#1D1D1F] text-[18px] sm:text-[19px] font-semibold tracking-tight">Repaired &amp; Issues Archive</h3>
+                    <p className="text-[13px] text-[#86868B] mt-0.5">Historical log of all reported cycle issues and completed maintenance repairs.</p>
+                  </div>
+                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <div className="relative w-full sm:w-64">
+                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#86868B] pointer-events-none" />
+                      <input 
+                        type="text"
+                        placeholder="Search cycle, staff..."
+                        value={repairedSearch}
+                        onChange={e => setRepairedSearch(e.target.value)}
+                        className="w-full pl-9 pr-8 py-2 bg-[#F5F5F7] border border-transparent focus:bg-white focus:border-black/20 focus:ring-2 focus:ring-black/5 outline-none text-[13px] rounded-xl text-[#1D1D1F] placeholder-[#86868B] transition-all"
+                      />
+                      {repairedSearch && (
+                        <button onClick={() => setRepairedSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#86868B] hover:text-[#1D1D1F] p-0.5">
+                          <X size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto bg-white rounded-2xl border border-black/[0.06]">
+                {/* Mobile Responsive Form-Cards View */}
+                <div className="flex flex-col gap-2.5 sm:hidden">
+                  {isLoadingRepairedIssues ? (
+                    <div className="bg-white p-8 rounded-2xl border border-black/[0.06] text-center text-sm text-[#86868B] flex items-center justify-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-[#1D1D1F]" />
+                      Loading archive...
+                    </div>
+                  ) : filteredRepaired.length === 0 ? (
+                    <div className="bg-white p-8 rounded-2xl border border-black/[0.06] text-center flex flex-col items-center justify-center gap-2">
+                      <p className="text-sm font-semibold text-[#1D1D1F]">No records found</p>
+                      <p className="text-xs text-[#86868B]">No issues or repairs match your search.</p>
+                      {repairedSearch && (
+                        <button
+                          onClick={() => setRepairedSearch('')}
+                          className="mt-2 px-3.5 py-1.5 bg-[#F5F5F7] hover:bg-[#EAEAEA] text-[#1D1D1F] rounded-full text-xs font-semibold transition"
+                        >
+                          Clear Search
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    filteredRepaired.map(item => {
+                      const isMaintenance = item.source === 'maintenance';
+                      let dateStr = '';
+                      let timeStr = '';
+                      try {
+                        const d = new Date(item.created_at);
+                        dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                      } catch {
+                        dateStr = item.created_at || '';
+                      }
+
+                      return (
+                        <div key={`${item.source}-${item.id}`} className="bg-white p-4 rounded-2xl border border-black/[0.06] flex flex-col gap-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-[#1D1D1F] text-[16px] tracking-tight">#{item.cycle_id}</span>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                              isMaintenance
+                                ? 'bg-[#F5F5F7] text-[#1D1D1F] border-black/[0.06]'
+                                : 'bg-red-50 text-red-600 border-red-200/60'
+                            }`}>
+                              {isMaintenance ? 'Repair (Maintenance)' : 'Reported Issue'}
+                            </span>
+                          </div>
+
+                          <div className="bg-[#F5F5F7] p-3 rounded-xl border border-black/[0.03] text-xs">
+                            <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#86868B] mb-1">
+                              {isMaintenance ? 'Repair Details' : 'Issue Details'}
+                            </span>
+                            <p className="font-medium text-[#1D1D1F] text-[13px] leading-relaxed">
+                              {item.issue || item.parts_checked || item.fix_description || 'No details provided'}
+                            </p>
+                            {isMaintenance && item.status && (
+                              <span className="inline-block mt-1.5 text-[10px] font-semibold text-[#1D1D1F] bg-white border border-black/[0.06] px-2 py-0.5 rounded-full">
+                                Status: {item.status}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs text-[#86868B]">
+                            <div>
+                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#86868B] mb-0.5">Staff</span>
+                              <span className="font-semibold text-[#1D1D1F] truncate block">{item.staff_name || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#86868B] mb-0.5">Date & Time</span>
+                              <span className="font-semibold text-[#1D1D1F] block">{dateStr}</span>
+                              <span className="text-[10px] text-[#86868B]">{timeStr}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-black/[0.04]">
+                            <button
+                              type="button"
+                              onClick={() => setViewingRecord(item)}
+                              className="px-3.5 py-2 bg-[#F5F5F7] hover:bg-[#EAEAEA] active:scale-95 text-[#1D1D1F] rounded-full text-xs font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <Eye size={13} /> View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingRecord(item)}
+                              className="px-3.5 py-2 bg-[#F5F5F7] hover:bg-[#EAEAEA] active:scale-95 text-[#1D1D1F] rounded-full text-xs font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <Edit3 size={13} /> Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRecord(item.source, item.id)}
+                              className="px-3.5 py-2 bg-red-50 hover:bg-red-100 active:scale-95 text-red-600 rounded-full text-xs font-semibold flex items-center gap-1.5 transition"
+                            >
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden sm:block overflow-x-auto bg-white rounded-2xl border border-black/[0.06]">
                   <table className="w-full text-left min-w-[680px]">
                     <thead>
-                      <tr className="text-[11px] text-[#86868B] uppercase tracking-wider border-b border-black/[0.06]">
+                      <tr className="text-[11px] text-[#86868B] uppercase tracking-wider border-b border-black/[0.06] bg-[#FBFBFD]">
                         <th className="py-3.5 px-4 font-semibold">Cycle</th>
                         <th className="py-3.5 px-4 font-semibold">Type</th>
                         <th className="py-3.5 px-4 font-semibold">Issue / Repair Details</th>
@@ -2852,15 +3184,9 @@ export default function AdminDashboard() {
                       {isLoadingRepairedIssues ? (
                         <tr><td colSpan="6" className="py-12 text-center text-[#86868B]">Loading data...</td></tr>
                       ) : (
-                        repairedIssuesData
-                          .filter(item => {
-                            if (!repairedSearch.trim()) return true;
-                            const term = repairedSearch.toLowerCase();
-                            return String(item.cycle_id).includes(term) || item.staff_name.toLowerCase().includes(term);
-                          })
-                          .map(item => {
-                            const isMaintenance = item.source === 'maintenance';
-                            return (
+                        filteredRepaired.map(item => {
+                          const isMaintenance = item.source === 'maintenance';
+                          return (
                           <tr key={`${item.source}-${item.id}`} className="hover:bg-[#F5F5F7]/60 transition-colors group">
                             <td className="py-3.5 px-4">
                               <span className="font-semibold text-[#1D1D1F] text-[14px]">#{item.cycle_id}</span>
@@ -2868,14 +3194,14 @@ export default function AdminDashboard() {
                             <td className="py-3.5 px-4">
                               <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium border ${
                                 isMaintenance
-                                  ? 'bg-[#F5F5F7] text-[#1D1D1F] border-black/[0.06]'
-                                  : 'bg-red-50 text-red-600 border-red-200/60'
+                                    ? 'bg-[#F5F5F7] text-[#1D1D1F] border-black/[0.06]'
+                                    : 'bg-red-50 text-red-600 border-red-200/60'
                               }`}>
                                 {isMaintenance ? 'Repair (Maintenance)' : 'Reported Issue'}
                               </span>
                             </td>
                             <td className="py-3.5 px-4 text-[#1D1D1F] text-[13px] max-w-[240px] truncate">
-                               {item.issue || item.parts_checked || 'No details provided'}
+                               {item.issue || item.parts_checked || item.fix_description || 'No details provided'}
                                {isMaintenance && item.status && <span className="ml-2 text-[10px] text-[#6E6E73] bg-[#F5F5F7] px-2 py-0.5 rounded-full">{item.status}</span>}
                             </td>
                             <td className="py-3.5 px-4 text-[#6E6E73] font-medium text-[13px]">
@@ -2886,11 +3212,11 @@ export default function AdminDashboard() {
                               <span className="text-[#86868B] text-[11px]">{new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                             </td>
                             <td className="py-3.5 px-4 text-right">
-                              <div className="flex justify-end gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => setViewingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-white rounded-lg transition" title="View Details">
+                              <div className="flex justify-end gap-1 opacity-100 sm:opacity-80 sm:group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => setViewingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-[#F5F5F7] rounded-lg transition" title="View Details">
                                   <Eye size={15} />
                                 </button>
-                                <button onClick={() => setEditingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-white rounded-lg transition" title="Edit">
+                                <button onClick={() => setEditingRecord(item)} className="p-1.5 text-[#86868B] hover:text-[#1D1D1F] hover:bg-[#F5F5F7] rounded-lg transition" title="Edit">
                                   <Edit3 size={15} />
                                 </button>
                                 <button onClick={() => handleDeleteRecord(item.source, item.id)} className="p-1.5 text-[#86868B] hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete">
@@ -2902,14 +3228,15 @@ export default function AdminDashboard() {
                           )
                         })
                       )}
-                      {(!isLoadingRepairedIssues && repairedIssuesData.length === 0) && (
+                      {(!isLoadingRepairedIssues && filteredRepaired.length === 0) && (
                         <tr><td colSpan="6" className="py-12 text-center text-[#86868B]">No records found matching your search.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {activeTab === 'reports' && (
               <>
