@@ -758,39 +758,43 @@ export default function TaskForm({ taskType, staffName, onBack }) {
   const renderPartsChecked = (cycle) => {
     const allSelected = cycle.partsChecked.length === PARTS_LIST.length;
     return (
-      <div className="mb-4">
-        <div className="flex justify-between items-end mb-3">
-          <label className="block text-sm font-semibold text-gray-700">Parts Checked</label>
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-2.5">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700">Parts Checked</label>
+            <span className="text-xs text-gray-500">
+              {cycle.partsChecked.length} of {PARTS_LIST.length} parts checked
+            </span>
+          </div>
           <button 
             type="button" 
             onClick={() => handleSelectAllParts(cycle.id)} 
-            className="text-xs text-blue-700 hover:text-white hover:bg-blue-600 font-semibold bg-blue-50 border border-blue-200 px-4 py-1.5 rounded-md transition-all shadow-sm active:scale-95"
+            className="text-xs text-gray-600 hover:text-black font-medium px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 transition"
           >
-            {allSelected ? 'Deselect All' : 'Select All'}
+            {allSelected ? 'Clear All' : 'Select All'}
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
           {PARTS_LIST.map(p => {
             const isChecked = cycle.partsChecked.includes(p.name);
             return (
               <label 
                 key={p.name} 
-                className={`flex items-center space-x-2 sm:space-x-3 p-2.5 sm:p-3 rounded-lg cursor-pointer transition-all duration-200 border min-h-[44px] ${
-                  isChecked ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50'
+                className={`flex items-center gap-3 p-3 sm:p-3.5 rounded-xl cursor-pointer transition select-none min-h-[44px] ${
+                  isChecked 
+                    ? 'bg-gray-200/90 text-gray-900 font-semibold ring-1 ring-black/10' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200/60 hover:text-gray-900'
                 }`}
               >
                 <input 
                   type="checkbox" 
-                  className="rounded text-gray-900 focus:ring-gray-900 w-4 h-4 cursor-pointer shrink-0"
+                  className="w-4 h-4 rounded text-black focus:ring-black cursor-pointer accent-black shrink-0"
                   checked={isChecked}
                   onChange={() => togglePart(cycle.id, p.name)}
                 />
-                <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
-                  <span className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0" style={{ backgroundColor: p.color }}></span>
-                  <span className={`text-xs sm:text-sm truncate ${isChecked ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
-                    {p.name}
-                  </span>
-                </div>
+                <span className={`text-sm truncate ${isChecked ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+                  {p.name}
+                </span>
               </label>
             );
           })}
