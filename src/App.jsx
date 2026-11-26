@@ -5,9 +5,6 @@ import FeedbackForm from "./components/FeedbackForm";
 import OfflineCyclesForm from "./components/OfflineCyclesForm";
 import AdminDashboard from "./components/AdminDashboard";
 import { supabase } from "./supabaseClient";
-import { getCurrentShiftWindow, getLocalDateKey, getStoredAssignments, saveStoredAssignments } from "./utils";
-
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
 
 function App() {
   const [selectedTask, setSelectedTask] = useState(() => localStorage.getItem('zum_selectedTask') || null);
@@ -15,9 +12,6 @@ function App() {
   const [nameError, setNameError] = useState(false);
   const [postponements, setPostponements] = useState({ station: [], overall: [], manualStation: {}, manualOverall: {} });
   const [hiddenForms, setHiddenForms] = useState({});
-  const [allAssignments, setAllAssignments] = useState(() => {
-    return getStoredAssignments(getLocalDateKey());
-  });
 
   useEffect(() => {
     if (selectedTask) localStorage.setItem('zum_selectedTask', selectedTask);
@@ -27,7 +21,6 @@ function App() {
   useEffect(() => {
     if (staffName) localStorage.setItem('zum_staffName', staffName);
   }, [staffName]);
-
 
   useEffect(() => {
     // Only fetch for non-admin to avoid double fetching since AdminDashboard handles itself
@@ -60,48 +53,7 @@ function App() {
         }
       };
 
-      const fetchAssignmentsForHome = async () => {
-        const todayKey = getLocalDateKey();
-        let merged = getStoredAssignments(todayKey);
-
-        // 1. Fetch from Google Sheets Assignments tab (works across devices even when Supabase is paused)
-        try {
-          const res = await fetch(APPS_SCRIPT_URL);
-          const json = await res.json();
-          if (json && json.assignments && typeof json.assignments === 'object') {
-            Object.entries(json.assignments).forEach(([sName, cList]) => {
-              const str = Array.isArray(cList) ? cList.join(', ') : String(cList || '');
-              if (str.trim()) {
-                merged[sName] = str;
-              }
-            });
-          }
-        } catch (e) {}
-
-        // 2. Fetch from Supabase assignments table for current shift
-        try {
-          const { start, end } = getCurrentShiftWindow();
-          const { data: assignData } = await supabase
-            .from('assignments')
-            .select('staff_name, cycles')
-            .gte('created_at', start)
-            .lt('created_at', end)
-            .order('created_at', { ascending: false });
-          if (assignData && assignData.length > 0) {
-            assignData.forEach(row => {
-              if (row.staff_name && row.cycles) {
-                merged[row.staff_name] = row.cycles;
-              }
-            });
-          }
-        } catch (e) {}
-
-        setAllAssignments(merged);
-        saveStoredAssignments(merged, todayKey);
-      };
-
       fetchPostponements();
-      fetchAssignmentsForHome();
     }
   }, []);
 
@@ -141,18 +93,9 @@ function App() {
     { key: 'feedback', label: 'Cycle Feedback', icon: MessageSquare, task: 'feedback', isPrimary: false }
   ].filter(form => !hiddenForms[form.key]);
 
-  const matchedStaffKey = Object.keys(allAssignments).find(
-    k => k.trim().toLowerCase() === (staffName || '').trim().toLowerCase()
-  );
-  const myAssignedCycles = matchedStaffKey
-    ? String(allAssignments[matchedStaffKey]).split(/[,;\s]+/).map(c => c.trim()).filter(Boolean)
-    : [];
-  const dynamicStaffSuggestions = Array.from(
-    new Set([
-      'Kabir', 'Laxman', 'Anish', 'Surya', 'Ram', 'Kiran', 'Dipesh', 'Sandesh',
-      ...Object.keys(allAssignments)
-    ])
-  );
+  const dynamicStaffSuggestions = [
+    'Kabir', 'Laxman', 'Anish', 'Surya', 'Ram', 'Kiran', 'Dipesh', 'Sandesh', 'Anuj', 'Priyanshu', 'Bishal', 'Kushal'
+  ];
 
   return (
     <main className="min-h-[100dvh] bg-gray-50 px-3 py-6 sm:px-6 sm:py-12 flex items-center justify-center">
@@ -176,31 +119,6 @@ function App() {
               ))}
             </datalist>
             {nameError && <p className="text-red-500 text-sm mt-2 font-medium">Please select or type your name first!</p>}
-
-            {/* Live Assigned Cycles Preview as soon as Staff enters their name */}
-            {staffName.trim() && myAssignedCycles.length > 0 && (
-              <div className="mt-3 p-3.5 rounded-2xl bg-white border border-black/[0.08] flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-gray-900">
-                    Your Assigned Routine Cycles ({myAssignedCycles.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTask('routine')}
-                    className="px-3 py-1 bg-gray-900 hover:bg-black text-white rounded-full text-xs font-semibold transition"
-                  >
-                    Open Routine Form →
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {myAssignedCycles.map((cId, idx) => (
-                    <span key={idx} className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-900 text-xs font-bold">
-                      #{cId}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="space-y-5 sm:space-y-6">

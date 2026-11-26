@@ -107,8 +107,39 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         const todayKey = getLocalDateKey();
         
         try {
-          // Only load today's stored assignments
-          let mergedMap = getStoredAssignments(todayKey);
+          // Strictly query Supabase for TODAY'S shift window first
+          let todayAssignments = {};
+          let supabaseLoaded = false;
+
+          try {
+            const { data: assignData, error: assignErr } = await supabase
+              .from('assignments')
+              .select('staff_name, cycles, created_at')
+              .gte('created_at', start)
+              .lt('created_at', end)
+              .order('created_at', { ascending: false });
+
+            if (!assignErr && assignData) {
+              supabaseLoaded = true;
+              assignData.forEach(row => {
+                if (row.staff_name && row.cycles && !todayAssignments[row.staff_name]) {
+                  todayAssignments[row.staff_name] = row.cycles;
+                }
+              });
+            }
+          } catch (sbErr) {
+            console.warn("Supabase assignments fetch error:", sbErr);
+          }
+
+          // If Supabase loaded, it is authoritative for today. If empty, today has no assignments.
+          // Fall back to local storage only if Supabase had a network failure.
+          let mergedMap = {};
+          if (supabaseLoaded) {
+            mergedMap = todayAssignments;
+            saveStoredAssignments(mergedMap, todayKey);
+          } else {
+            mergedMap = getStoredAssignments(todayKey);
+          }
 
           const applyStaffAssignedCycles = (mapObj) => {
             const staffMatch = Object.keys(mapObj).find(
@@ -141,43 +172,7 @@ export default function TaskForm({ taskType, staffName, onBack }) {
             }
           };
 
-          applyStaffAssignedCycles(mergedMap);
-
-          // 1. Fetch assignments from Google Sheets (Current shift only)
-          try {
-            const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkczy9TswS6OOXiPZr2K13_uPGCU8OTz32oWC5knGHsb2tEykcGYjCYAmENbxQqtu0/exec';
-            const sheetRes = await fetch(APPS_SCRIPT_URL);
-            const sheetJson = await sheetRes.json();
-            if (sheetJson && sheetJson.assignments && typeof sheetJson.assignments === 'object') {
-              Object.entries(sheetJson.assignments).forEach(([sName, cList]) => {
-                const str = Array.isArray(cList) ? cList.join(', ') : String(cList || '');
-                if (str.trim()) {
-                  mergedMap[sName] = str;
-                }
-              });
-            }
-          } catch (e) {}
-
-          // 2. Fetch assignments for routine from Supabase for current shift window
-          try {
-            const { data: assignData } = await supabase
-              .from('assignments')
-              .select('staff_name, cycles')
-              .gte('created_at', start)
-              .lt('created_at', end)
-              .order('created_at', { ascending: false });
-
-            if (assignData && assignData.length > 0) {
-              assignData.forEach(row => {
-                if (row.staff_name && row.cycles) {
-                  mergedMap[row.staff_name] = row.cycles;
-                }
-              });
-            }
-          } catch (e) {}
-
           setAllRoutineAssignments(mergedMap);
-          saveStoredAssignments(mergedMap, todayKey);
           applyStaffAssignedCycles(mergedMap);
 
           // Fetch all cycles interacted with during the current shift for suggestions only
@@ -289,6 +284,17 @@ export default function TaskForm({ taskType, staffName, onBack }) {
         ...item,
         condition: nextCond,
         issue: nextCond === 'good' ? '' : item.issue
+      };
+    }));
+  };
+
+  const setRoutineCondition = (cycleId, cond) => {
+    setRoutineItems(prev => prev.map(item => {
+      if (item.cycleId !== cycleId) return item;
+      return {
+        ...item,
+        condition: cond,
+        issue: cond === 'good' ? '' : item.issue
       };
     }));
   };
@@ -878,18 +884,30 @@ export default function TaskForm({ taskType, staffName, onBack }) {
                     </label>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => toggleRoutineIssue(item.cycleId)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 ${
-                          item.condition === 'issue'
-                            ? 'bg-red-100 text-red-700 font-semibold'
-                            : 'bg-white text-gray-700 hover:text-black border border-gray-200/60 shadow-2xs'
-                        }`}
-                        title="Click to toggle issue status"
-                      >
-                        {item.condition === 'issue' ? 'Has Issue' : 'All Good'}
-                      </button>
+                      <div className="flex items-center bg-gray-200/80 p-0.5 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setRoutineCondition(item.cycleId, 'good')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+                            item.condition === 'good'
+                              ? 'bg-white text-emerald-700 shadow-2xs'
+                              : 'text-gray-500 hover:text-gray-900'
+                          }`}
+                        >
+                          ✓ Good
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRoutineCondition(item.cycleId, 'issue')}
+                          className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+                            item.condition === 'issue'
+                              ? 'bg-red-600 text-white shadow-2xs'
+                              : 'text-gray-500 hover:text-red-600'
+                          }`}
+                        >
+                          ⚠ Issue
+                        </button>
+                      </div>
 
                       {item.isCustom && (
                         <button
